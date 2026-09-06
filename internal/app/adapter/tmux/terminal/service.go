@@ -127,7 +127,7 @@ func (s *Service) EnterExisting(ctx context.Context, opts contract.ResolveOption
 		return Result{}, fmt.Errorf("could not inspect existing tmux terminal: %w", err)
 	}
 	if !exists {
-		return Result{}, fmt.Errorf("active TUI runtime terminal %s does not exist", res.Session)
+		return Result{}, fmt.Errorf("active TUI runtime terminal %s does not exist; the runtime process may be orphaned after a tmux server restart, run `wi agent runtime stop --force --item %s`, wait for it to exit, then switch again", res.Session, m.ID)
 	}
 	return s.attach(ctx, opts, res, attach)
 }

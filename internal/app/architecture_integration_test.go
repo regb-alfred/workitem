@@ -852,6 +852,60 @@ func TestSwitchWorkItemDoesNotChangeWaitingState(t *testing.T) {
 	}
 }
 
+func TestSwitchWorkItemRecyclesOrphanedTUIRuntimeWhenTerminalIsGone(t *testing.T) {
+	st := store.New(t.TempDir())
+	fg := newFakeGit(t)
+	ft := &fakeTmux{sessions: map[string]bool{}}
+	fp := &fakeProcess{alive: map[int]bool{}}
+	application := app.New(st, fg)
+	application.Tmux = ft
+	application.Process = fp
+	application.Pi = &fakePi{}
+	application.Clock = fixedClock{testutil.Time()}
+	ids := []string{testutil.ID(t, 80), testutil.ID(t, 81)}
+	idx := 0
+	application.NewID = func() (string, error) { id := ids[idx]; idx++; return id, nil }
+	created, err := application.NewWorkItem(context.Background(), app.NewWorkItemOptions{Title: "Orphaned Runtime", CWD: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	started, err := application.StartWorkItem(context.Background(), app.ResolveOptions{Selector: created.Manifest.ID}, false, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	itemID := started.Workspace.Manifest.ID
+	session := started.Workspace.Manifest.TerminalSessionName()
+	conversationID := started.Workspace.Manifest.RootPiSession.ID
+	runtime := model.AgentRuntime{ID: "tui-orphan", WorkItemID: itemID, Mode: "tui", State: model.AgentRuntimeRunning, HostPID: 444, HostProcessGroup: 444, HostStartTime: 444, ConversationID: conversationID, StartedAt: testutil.Time(), UpdatedAt: testutil.Time()}
+	if err := st.SaveAgentRuntime(context.Background(), itemID, runtime); err != nil {
+		t.Fatal(err)
+	}
+	fp.setAlive(444, true)
+	// Simulate a tmux server restart: the wi-owned session vanishes while the
+	// runtime process keeps running, orphaned.
+	delete(ft.sessions, session)
+
+	switched, err := application.SwitchWorkItem(context.Background(), app.ResolveOptions{Selector: itemID}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fp.Alive(444) {
+		t.Fatal("orphaned runtime process remained alive")
+	}
+	if switched.AgentRuntime == nil || switched.AgentRuntime.ID == "tui-orphan" {
+		t.Fatalf("switch did not start a fresh runtime: %+v", switched.AgentRuntime)
+	}
+	if switched.AgentRuntime.ConversationID != conversationID {
+		t.Fatalf("fresh runtime did not resume the conversation: %+v", switched.AgentRuntime)
+	}
+	if !ft.sessions[session] {
+		t.Fatal("terminal was not recreated")
+	}
+	if joined := strings.Join(switched.Warnings, "\n"); !strings.Contains(joined, "was gone") {
+		t.Fatalf("expected recycle warning: %+v", switched.Warnings)
+	}
+}
+
 func TestSwitchWorkItemWarnsWhenAlreadyInTargetTmuxSession(t *testing.T) {
 	st := store.New(t.TempDir())
 	fg := newFakeGit(t)

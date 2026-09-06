@@ -158,6 +158,23 @@ wi daemon doctor
 
 A mismatched checkout, stale incomplete activity, failed runtime, or unavailable process may produce a problem observation. Stop a verified stale runtime before ensuring a replacement. Avoid deleting sockets, runtime records, or Pi JSONL manually.
 
+## A tmux server restart orphaned active runtimes
+
+Restarting the tmux server (or `tmux kill-server`) removes every wi-owned session while the TUI agent processes keep running, orphaned and unreachable. The next `wi switch ITEM`, `wi next`, or picker selection on such an item detects the missing terminal and recovers automatically: it stops the verified orphaned runtime and starts a fresh terminal that resumes the same conversation. The result reports a warning that this happened.
+
+If the orphaned process will not exit within a few seconds, `wi switch` fails with a recovery hint. Stop it explicitly and switch again:
+
+```bash
+wi agent runtime stop --force --item ITEM
+wi switch ITEM
+```
+
+To recover every item at once, stop all runtimes and terminals:
+
+```bash
+wi shutdown --force
+```
+
 ## The daemon does not start
 
 ```bash

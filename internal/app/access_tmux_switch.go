@@ -3,10 +3,16 @@ package app
 import (
 	"context"
 	"fmt"
+	"strings"
+	"time"
 
 	"github.com/regb/workitem/internal/agent"
 	"github.com/regb/workitem/internal/model"
 )
+
+// orphanRuntimeStopTimeout bounds how long wi waits for a recycled runtime to
+// exit before falling back to a manual recovery hint.
+const orphanRuntimeStopTimeout = 5 * time.Second
 
 // SwitchWorkItem is state-neutral porcelain. It composes required worktree
 // materialization, a TUI agent runtime, and optional terminal attachment.
@@ -20,6 +26,7 @@ func (a *App) SwitchWorkItem(ctx context.Context, opts ResolveOptions, attach bo
 		return CompositionResult{}, err
 	}
 	ownership := a.primaryAgentService().ObserveOwnership(existing)
+	var recycleWarnings []string
 	if ownership.ProcessAlive {
 		if ownership.Mode != "tui" {
 			return CompositionResult{}, fmt.Errorf("agent runtime %s currently owns the conversation in %s mode; run `wi agent runtime stop --item %s`, wait for it to exit, then switch to the native TUI", existing.ID, existing.Mode, m.ID)
@@ -27,11 +34,22 @@ func (a *App) SwitchWorkItem(ctx context.Context, opts ResolveOptions, attach bo
 		if m.RootPiSession == nil {
 			return CompositionResult{}, fmt.Errorf("active agent runtime %s has no durable root conversation", existing.ID)
 		}
-		terminal, err := a.enterExistingTerminal(ctx, ResolveOptions{Selector: m.ID, CWD: opts.CWD, Env: opts.Env}, attach)
+		if a.tmuxTerminalExists(ctx, m) {
+			terminal, err := a.enterExistingTerminal(ctx, ResolveOptions{Selector: m.ID, CWD: opts.CWD, Env: opts.Env}, attach)
+			if err != nil {
+				return CompositionResult{}, err
+			}
+			return CompositionResult{WorkItemID: m.ID, Checkout: m.Checkout, Terminal: &terminal, PiSession: m.RootPiSession, AgentRuntime: existing, Manifest: m, Warnings: append([]string(nil), terminal.Warnings...)}, nil
+		}
+		// The runtime process is verified alive but its tmux terminal is gone,
+		// typically because the tmux server restarted. The process is
+		// unreachable, so recycle it and fall through to start a fresh TUI
+		// runtime in a new terminal that resumes the same conversation.
+		recycled, err := a.recycleOrphanedTUIRuntime(ctx, m, existing)
 		if err != nil {
 			return CompositionResult{}, err
 		}
-		return CompositionResult{WorkItemID: m.ID, Checkout: m.Checkout, Terminal: &terminal, PiSession: m.RootPiSession, AgentRuntime: existing, Manifest: m, Warnings: append([]string(nil), terminal.Warnings...)}, nil
+		recycleWarnings = append(recycleWarnings, recycled...)
 	}
 	if err := a.requireTUIRuntimeAvailable(m); err != nil {
 		return CompositionResult{}, err
@@ -47,7 +65,7 @@ func (a *App) SwitchWorkItem(ctx context.Context, opts ResolveOptions, attach bo
 	workspace := CompositionResult{
 		WorkItemID: m.ID, Checkout: manifest.Checkout, Terminal: runtime.Terminal,
 		PiSession: manifest.RootPiSession, PiLaunched: runtime.Created,
-		AgentRuntime: &runtime.Runtime, Manifest: manifest, Warnings: runtime.Warnings,
+		AgentRuntime: &runtime.Runtime, Manifest: manifest, Warnings: append(append([]string(nil), runtime.Warnings...), recycleWarnings...),
 	}
 	if attach {
 		terminal, err := a.EnterTerminal(ctx, ResolveOptions{Selector: manifest.ID, CWD: opts.CWD, Env: opts.Env}, true)
@@ -58,6 +76,43 @@ func (a *App) SwitchWorkItem(ctx context.Context, opts ResolveOptions, attach bo
 		workspace.Warnings = append(workspace.Warnings, terminal.Warnings...)
 	}
 	return workspace, nil
+}
+
+func (a *App) tmuxTerminalExists(ctx context.Context, m model.Manifest) bool {
+	if a.Tmux == nil {
+		return false
+	}
+	exists, err := a.Tmux.HasSession(ctx, m.TerminalSessionName())
+	return err == nil && exists
+}
+
+// recycleOrphanedTUIRuntime force-stops a verified TUI runtime whose tmux
+// terminal has disappeared and waits for it to exit. The conversation is
+// durable, so a later EnsureAgentRuntime resumes the same root Pi session in a
+// fresh terminal.
+func (a *App) recycleOrphanedTUIRuntime(ctx context.Context, m model.Manifest, runtime *model.AgentRuntime) ([]string, error) {
+	stopped, err := a.StopAgentRuntime(ctx, ResolveOptions{Selector: m.ID}, true)
+	if err != nil {
+		return nil, fmt.Errorf("TUI runtime %s is still running but its tmux terminal %s is gone; stop it with `wi agent runtime stop --force --item %s`, wait for it to exit, then switch again: %w", runtime.ID, m.TerminalSessionName(), m.ID, err)
+	}
+	service := a.primaryAgentService()
+	deadline := time.Now().Add(orphanRuntimeStopTimeout)
+	for service.ObserveOwnership(runtime).ProcessAlive && time.Now().Before(deadline) {
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(50 * time.Millisecond):
+		}
+	}
+	if service.ObserveOwnership(runtime).ProcessAlive {
+		return nil, fmt.Errorf("orphaned TUI runtime %s would not exit after its terminal disappeared; run `wi agent runtime stop --force --item %s`, wait for it to exit, then switch again", runtime.ID, m.ID)
+	}
+	warnings := append([]string(nil), stopped.Warnings...)
+	warnings = append(warnings, strings.Join([]string{
+		"TUI runtime " + runtime.ID + " was still running but its tmux terminal " + m.TerminalSessionName() + " was gone (tmux server restarted?);",
+		"stopped it and started a fresh terminal that resumes the same conversation",
+	}, " "))
+	return warnings, nil
 }
 
 func (a *App) requireTUIRuntimeAvailable(m model.Manifest) error {
