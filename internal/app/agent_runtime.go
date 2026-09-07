@@ -3,9 +3,9 @@ package app
 import (
 	"context"
 	"fmt"
-
 	"os"
 	"strings"
+	"time"
 
 	"github.com/regb/workitem/internal/agent"
 	agentcore "github.com/regb/workitem/internal/app/core/primaryagent"
@@ -158,13 +158,33 @@ func (a *App) validateRuntimeCheckout(ctx context.Context, m model.Manifest, run
 		return nil, nil
 	}
 	window := "agent"
-	pane, err := a.Tmux.PaneInfo(ctx, m.TerminalSessionName()+":"+window)
-	if err != nil {
-		return []string{"could not verify active agent pane checkout: " + err.Error()}, nil
+	target := m.TerminalSessionName() + ":" + window
+	var panePath string
+	for attempt := 0; attempt < 3; attempt++ {
+		pane, err := a.Tmux.PaneInfo(ctx, target)
+		if err != nil {
+			return []string{"could not verify active agent pane checkout: " + err.Error()}, nil
+		}
+		panePath = strings.TrimSpace(pane.CurrentPath)
+		if panePath != "" {
+			break
+		}
+		if attempt < 2 {
+			timer := time.NewTimer(25 * time.Millisecond)
+			select {
+			case <-ctx.Done():
+				timer.Stop()
+				return nil, ctx.Err()
+			case <-timer.C:
+			}
+		}
+	}
+	if panePath == "" {
+		return []string{"could not verify active agent pane checkout: tmux reported an empty pane path"}, nil
 	}
 	checkoutPath := strings.TrimSpace(*m.Checkout.Path)
-	if !agentcore.CheckoutContainsPath(checkoutPath, pane.CurrentPath) {
-		return nil, fmt.Errorf("agent runtime %s is running in %s, but work item %s now owns checkout %s; stop the runtime and start or switch the item again", runtime.ID, pane.CurrentPath, m.ID, checkoutPath)
+	if !agentcore.CheckoutContainsPath(checkoutPath, panePath) {
+		return nil, fmt.Errorf("agent runtime %s is running in %s, but work item %s now owns checkout %s; stop the runtime and start or switch the item again", runtime.ID, panePath, m.ID, checkoutPath)
 	}
 	return nil, nil
 }

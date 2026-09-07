@@ -103,21 +103,22 @@ func (f *fakeGit) DeleteBranch(ctx context.Context, repoRoot, branch string, for
 }
 
 type fakeTmux struct {
-	current     string
-	env         map[string]string
-	sessionEnvs map[string]map[string]string
-	sessions    map[string]bool
-	ensured     []tmuxpkg.SessionSpec
-	launched    []tmuxpkg.LaunchSpec
-	attach      []string
-	killed      []string
-	killedAsync []string
-	ensureErr   error
-	launchErr   error
-	killErr     error
-	panePath    string
-	panePaths   map[string]string
-	onLaunch    func(tmuxpkg.LaunchSpec) error
+	current           string
+	env               map[string]string
+	sessionEnvs       map[string]map[string]string
+	sessions          map[string]bool
+	ensured           []tmuxpkg.SessionSpec
+	launched          []tmuxpkg.LaunchSpec
+	attach            []string
+	killed            []string
+	killedAsync       []string
+	ensureErr         error
+	launchErr         error
+	killErr           error
+	panePath          string
+	panePaths         map[string]string
+	panePathResponses []string
+	onLaunch          func(tmuxpkg.LaunchSpec) error
 }
 
 func (f *fakeTmux) HasSession(ctx context.Context, name string) (bool, error) {
@@ -156,10 +157,15 @@ func (f *fakeTmux) LaunchCommand(ctx context.Context, spec tmuxpkg.LaunchSpec) e
 }
 func (f *fakeTmux) PaneInfo(ctx context.Context, target string) (tmuxpkg.PaneInfo, error) {
 	path := f.panePath
-	if path == "" {
+	responseSet := len(f.panePathResponses) > 0
+	if responseSet {
+		path = f.panePathResponses[0]
+		f.panePathResponses = f.panePathResponses[1:]
+	}
+	if path == "" && !responseSet {
 		path = f.panePaths[target]
 	}
-	if path == "" {
+	if path == "" && !responseSet {
 		path = "/tmp"
 	}
 	return tmuxpkg.PaneInfo{SessionName: "wi-test", WindowName: "agent", PaneID: "%1", PaneIndex: "0", PanePID: 123, Command: "wi", CurrentPath: path}, nil
@@ -1788,7 +1794,7 @@ func TestEnsureAgentRuntimeForksConversationAfterSlotReassignment(t *testing.T) 
 	}
 }
 
-func TestEnsureAgentRuntimeRejectsTUIInDifferentCheckout(t *testing.T) {
+func TestEnsureAgentRuntimeRetriesEmptyPanePathAndRejectsDifferentCheckout(t *testing.T) {
 	st := store.New(t.TempDir())
 	itemID := testutil.ID(t, 121)
 	application := app.New(st, newFakeGit(t))
@@ -1818,6 +1824,11 @@ func TestEnsureAgentRuntimeRejectsTUIInDifferentCheckout(t *testing.T) {
 	if err := st.SaveAgentRuntime(context.Background(), itemID, runtime); err != nil {
 		t.Fatal(err)
 	}
+	ft.panePathResponses = []string{"", *started.Workspace.Manifest.Checkout.Path}
+	if _, err = application.EnsureAgentRuntime(context.Background(), app.ResolveOptions{Selector: created.Manifest.ID}, agent.ModeTUI); err != nil {
+		t.Fatalf("transient empty pane path was not retried: %v", err)
+	}
+
 	ft.panePath = filepath.Join(t.TempDir(), "slot-0004")
 	_, err = application.EnsureAgentRuntime(context.Background(), app.ResolveOptions{Selector: created.Manifest.ID}, agent.ModeTUI)
 	if err == nil || !strings.Contains(err.Error(), "now owns checkout") {
