@@ -146,6 +146,18 @@ func (o *ExternalObserver) ReconcileActionability(ctx context.Context) error {
 }
 
 func (o *ExternalObserver) applyActionability(itemID string, observation *AgentObservation) error {
+	var owner model.AgentRuntime
+	ownerFound, err := o.database.ReadProjection(RuntimeOwnershipProjection, itemID, &owner)
+	if err != nil {
+		return fmt.Errorf("read runtime ownership projection: %w", err)
+	}
+	if ownerFound {
+		ownerCopy := owner
+		observation.Runtime = &ownerCopy
+	} else {
+		observation.Runtime = nil
+	}
+
 	var pi PiSessionIndex
 	piFound, err := o.database.ReadProjection(PiSessionProjection, itemID, &pi)
 	if err != nil {
@@ -175,7 +187,7 @@ func (o *ExternalObserver) applyActionability(itemID string, observation *AgentO
 		observation.Activity.LastRequestedAt = laterTime(observation.Activity.LastRequestedAt, live.LastRequestedAt)
 		observation.Activity.LastCompletedAt = laterTime(observation.Activity.LastCompletedAt, live.LastCompletedAt)
 	}
-	liveOwnerCurrent := liveFound && observation.Runtime != nil && live.RuntimeID == observation.Runtime.ID
+	liveOwnerCurrent := liveFound && ownerFound && live.RuntimeID == owner.ID
 	liveCurrent := liveOwnerCurrent && live.Source == "daemon.runtime.live" && live.LastEventAt != nil && (!piFound || pi.LastTurnActivity == nil || !live.LastEventAt.Before(pi.LastTurnActivity.Timestamp))
 	switch {
 	case liveCurrent && live.RuntimeState == model.AgentRuntimeProblem:

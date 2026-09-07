@@ -104,4 +104,28 @@ func TestExternalObserverVerifiesRuntimeAndBuildsAgentProjection(t *testing.T) {
 	if found, err = db.ReadProjection(AgentObservationProjection, itemID, &projection); err != nil || !found || projection.Status != "idle" || projection.Reason != "latest assistant answer is terminal" {
 		t.Fatalf("stale owner activity remained actionable: projection=%+v found=%v err=%v", projection, found, err)
 	}
+
+	// Actionability reconciliation must compare live activity with canonical
+	// runtime ownership, not the potentially stale owner cached in an earlier
+	// agent observation. Otherwise a current settled event can be overwritten
+	// by the native session's incomplete fallback after runtime replacement.
+	piIndex.InferredTurnState = "incomplete"
+	piIndex.LastTurnActivity = &PiEventFact{Timestamp: promptAt, Role: "user"}
+	currentSettledAt := staleAt.Add(time.Second)
+	currentRuntime := RuntimeActivity{WorkItemID: itemID, RuntimeID: runtime.ID, TurnState: "idle", LastEventAt: &currentSettledAt, LastCompletedAt: &currentSettledAt, ObservedAt: currentSettledAt, Source: "daemon.runtime.live"}
+	projection.Runtime = &model.AgentRuntime{ID: "runtime-old", WorkItemID: itemID}
+	projection.Status = "busy"
+	projection.Reason = "latest Pi activity is incomplete and runtime ownership is online"
+	encodedIndex, _ = json.Marshal(piIndex)
+	encodedCurrentRuntime, _ := json.Marshal(currentRuntime)
+	encodedProjection, _ := json.Marshal(projection)
+	if err := db.UpdateProjections([]ProjectionUpdate{{Projection: PiSessionProjection, Key: itemID, Value: encodedIndex}, {Projection: RuntimeActivityProjection, Key: itemID, Value: encodedCurrentRuntime}, {Projection: AgentObservationProjection, Key: itemID, Value: encodedProjection}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := observer.ReconcileActionability(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if found, err = db.ReadProjection(AgentObservationProjection, itemID, &projection); err != nil || !found || projection.Status != "idle" || projection.Reason != "live runtime event reports settled work" || projection.Runtime == nil || projection.Runtime.ID != runtime.ID {
+		t.Fatalf("current settled activity was not restored from canonical ownership: projection=%+v found=%v err=%v", projection, found, err)
+	}
 }

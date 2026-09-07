@@ -46,6 +46,8 @@ export default function wiBridge(pi: ExtensionAPI) {
   let sendingRuntimeEvent = false;
   let runtimeEventsDisabled = false;
   let runtimeRetry: ReturnType<typeof setTimeout> | undefined;
+  let idleProbe: ReturnType<typeof setInterval> | undefined;
+  let activityReportedBusy = false;
   const runtimeQueue: Array<Record<string, unknown>> = [];
   let lastDaemonRejection = "";
   let rejectionLogCooldown = 0;
@@ -148,6 +150,18 @@ export default function wiBridge(pi: ExtensionAPI) {
     queueRuntimeEvent(record);
   };
 
+  const reconcileIdle = () => {
+    if (!activityReportedBusy || !context?.isIdle()) return;
+    try {
+      emit("agent.settled", { data: { reconciled: true }, backend_event_type: "idle_probe" });
+      activityReportedBusy = false;
+      currentRequestId = "";
+    } catch {
+      // A full runtime queue throws rather than dropping semantic events. Keep
+      // the busy marker set so the next probe retries after the queue drains.
+    }
+  };
+
   const accept = (command: ControlCommand) => emit("command.accepted", {
     command_id: command.id,
     request_id: command.request_id,
@@ -233,6 +247,9 @@ export default function wiBridge(pi: ExtensionAPI) {
       try { chmodSync(controlSocketPath, 0o600); } catch { /* best effort */ }
     });
     controlServer.on("error", (error) => emit("runtime.failed", { error: `control socket: ${String(error)}` }));
+    if (idleProbe) clearInterval(idleProbe);
+    idleProbe = setInterval(reconcileIdle, 1000);
+    idleProbe.unref?.();
   });
 
   pi.on("input", (event, ctx) => {
@@ -242,6 +259,7 @@ export default function wiBridge(pi: ExtensionAPI) {
   });
   pi.on("agent_start", (event, ctx) => {
     context = ctx;
+    activityReportedBusy = true;
     emit("agent.started", { backend_event_type: "agent_start", backend_event: { type: "agent_start", ...event } });
   });
   pi.on("agent_end", (event, ctx) => {
@@ -251,10 +269,12 @@ export default function wiBridge(pi: ExtensionAPI) {
   pi.on("agent_settled", (event, ctx) => {
     context = ctx;
     emit("agent.settled", { backend_event_type: "agent_settled", backend_event: { type: "agent_settled", ...event } });
+    activityReportedBusy = false;
     currentRequestId = "";
   });
   pi.on("turn_start", (event, ctx) => {
     context = ctx;
+    activityReportedBusy = true;
     emit("turn.started", { data: { turn_index: event.turnIndex }, backend_event_type: "turn_start", backend_event: { type: "turn_start", ...event } });
   });
   pi.on("turn_end", (event, ctx) => {
@@ -292,6 +312,7 @@ export default function wiBridge(pi: ExtensionAPI) {
   });
   pi.on("tool_execution_start", (event, ctx) => {
     context = ctx;
+    activityReportedBusy = true;
     emit("tool.started", {
       tool_call_id: event.toolCallId,
       tool_name: event.toolName,
@@ -358,6 +379,8 @@ export default function wiBridge(pi: ExtensionAPI) {
   });
   pi.on("session_shutdown", (event, ctx) => {
     context = ctx;
+    if (idleProbe) clearInterval(idleProbe);
+    idleProbe = undefined;
     controlServer?.close();
     controlServer = undefined;
     try { unlinkSync(controlSocketPath); } catch { /* already removed */ }
