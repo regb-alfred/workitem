@@ -47,12 +47,12 @@ To store and submit the initial prompt in one operation:
 
 ```bash
 wi new \
-  --agent-mode rpc \
+  --agent-mode headless \
   --prompt "Add bounded retry handling to the API client, test success after a retry and final failure, then report what changed." \
   "Add API retries"
 ```
 
-This creates the item, moves it to `working`, starts a headless runtime, and sends the prompt to Pi. Omit `--agent-mode rpc` to start an unattached TUI runtime that you can enter later.
+This creates the item, moves it to `working`, starts a headless runtime, and sends the prompt to Pi. Omit `--agent-mode headless` to start an unattached TUI runtime that you can enter later.
 
 Watch the delegated item:
 

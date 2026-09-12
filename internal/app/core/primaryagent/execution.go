@@ -14,14 +14,15 @@ import (
 )
 
 type ExecutionSpec struct {
-	SessionPath       string
-	Mode              agent.Mode
-	CWD               string
-	LogPath           string
-	WorkItemID        string
-	RuntimeID         string
-	ControlSocketPath string
-	SessionDir        string
+	ConversationLocator string
+	Mode                agent.Mode
+	CWD                 string
+	LogPath             string
+	WorkItemID          string
+	RuntimeID           string
+	ControlSocketPath   string
+	EventSocketPath     string
+	ConversationDir     string
 }
 
 type ExecuteBackend func(context.Context, ExecutionSpec) error
@@ -48,7 +49,7 @@ func (s *Service) Execute(ctx context.Context, itemID, sessionID, runtimeID stri
 	if runtime == nil || runtime.ID != runtimeID || runtime.ConversationID != session.ID || runtime.Mode != string(mode) {
 		return fmt.Errorf("agent runtime %s does not match work item %s conversation %s in %s mode", runtimeID, m.ID, session.ID, mode)
 	}
-	absolute, err := s.AbsPath(m.ID, session.Path)
+	absolute, err := s.AbsPath(m.ID, session.NativeLocator())
 	if err != nil {
 		return err
 	}
@@ -78,8 +79,9 @@ func (s *Service) Execute(ctx context.Context, itemID, sessionID, runtimeID stri
 		return err
 	}
 	controlSocketPath := s.ControlSocketPath(m.ID, runtime)
+	eventSocketPath := s.EventSocketPath(m.ID, runtime)
 	logPath := s.LogPath(m.ID, runtime)
-	for _, runtimePath := range []string{controlSocketPath, logPath} {
+	for _, runtimePath := range []string{controlSocketPath, eventSocketPath, logPath} {
 		if runtimePath == "" {
 			continue
 		}
@@ -90,6 +92,11 @@ func (s *Service) Execute(ctx context.Context, itemID, sessionID, runtimeID stri
 	defer func() {
 		if controlSocketPath != "" {
 			_ = os.Remove(controlSocketPath)
+		}
+		if eventSocketPath != "" {
+			_ = os.Remove(eventSocketPath)
+		}
+		if controlSocketPath != "" {
 			_ = os.Remove(filepath.Dir(controlSocketPath))
 		}
 		stopped := s.now()
@@ -104,5 +111,5 @@ func (s *Service) Execute(ctx context.Context, itemID, sessionID, runtimeID stri
 		}
 		_ = s.store.SaveAgentRuntime(context.Background(), m.ID, *runtime)
 	}()
-	return execute(ctx, ExecutionSpec{SessionPath: absolute, Mode: mode, CWD: cwd, LogPath: logPath, WorkItemID: m.ID, RuntimeID: runtime.ID, ControlSocketPath: controlSocketPath, SessionDir: s.SessionDir(m.ID)})
+	return execute(ctx, ExecutionSpec{ConversationLocator: absolute, Mode: mode, CWD: cwd, LogPath: logPath, WorkItemID: m.ID, RuntimeID: runtime.ID, ControlSocketPath: controlSocketPath, EventSocketPath: eventSocketPath, ConversationDir: s.ConversationDir(m.ID, session)})
 }

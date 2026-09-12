@@ -53,7 +53,7 @@ func TestServerStatusAndShutdown(t *testing.T) {
 	if err != nil || resources.Runtime != nil || resources.Terminal != nil {
 		t.Fatalf("item resources = %+v, err = %v", resources, err)
 	}
-	piProjection, err := client.PiSession(ctx, importTestID)
+	piProjection, err := client.Conversation(ctx, importTestID)
 	if err != nil || piProjection.Found {
 		t.Fatalf("Pi projection = %+v, err = %v", piProjection, err)
 	}
@@ -130,7 +130,7 @@ func TestAgentSocketCreatesOnlySafeBacklogItems(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(agentProjection.Manifests) != 1 || agentProjection.Manifests[0].Repository.RootAtCreation != "" || agentProjection.Manifests[0].Repository.GitCommonDir != "" || agentProjection.Manifests[0].Checkout.Branch != "" || agentProjection.Manifests[0].RootPiSession != nil {
+	if len(agentProjection.Manifests) != 1 || agentProjection.Manifests[0].Repository.RootAtCreation != "" || agentProjection.Manifests[0].Repository.GitCommonDir != "" || agentProjection.Manifests[0].Checkout.Branch != "" || agentProjection.Manifests[0].PrimaryConversation != nil {
 		t.Fatalf("agent projection exposed source, checkout, or conversation details: %+v", agentProjection.Manifests)
 	}
 	operatorProjection, err := operator.ManifestProjection(ctx)
@@ -178,11 +178,11 @@ func TestActivityBarrierIndexesPromptBeforeReturningSnapshot(t *testing.T) {
 	now := time.Now().UTC().Truncate(time.Microsecond)
 	manifest := model.NewManifest(importTestID, "barrier", "Barrier", nil, false, now, model.Repository{}, model.Checkout{})
 	manifest.State = model.StateWorking
-	manifest.RootPiSession = &model.PiSession{ID: "session-1", Path: "sessions/pi/session-1.jsonl"}
+	manifest.PrimaryConversation = &model.Conversation{Driver: "pi", ID: "session-1", Locator: "sessions/pi/session-1.jsonl"}
 	if err := native.CreateItem(context.Background(), manifest); err != nil {
 		t.Fatal(err)
 	}
-	sessionPath := filepath.Join(native.ItemDir(manifest.ID), filepath.FromSlash(manifest.RootPiSession.Path))
+	sessionPath := filepath.Join(native.ItemDir(manifest.ID), filepath.FromSlash(manifest.PrimaryConversation.NativeLocator()))
 	if err := os.MkdirAll(filepath.Dir(sessionPath), 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -205,7 +205,7 @@ func TestActivityBarrierIndexesPromptBeforeReturningSnapshot(t *testing.T) {
 		t.Fatal(err)
 	}
 	socket, _ := SocketPath(t.TempDir(), root)
-	server, err := NewServer(root, socket)
+	server, err := NewServer(root, socket, testConversationDecoders)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -213,7 +213,7 @@ func TestActivityBarrierIndexesPromptBeforeReturningSnapshot(t *testing.T) {
 	promptAt := now.Add(time.Second)
 	appendMessage(promptAt, "user", "PRIVATE_BARRIER_PROMPT")
 	result, err := server.activityBarrier(context.Background())
-	if err != nil || !result.Projection.Fresh || result.PiImport.EntriesScanned != 1 || result.PiImport.BytesRead == 0 {
+	if err != nil || !result.Projection.Fresh || result.ConversationImport.EntriesScanned != 1 || result.ConversationImport.BytesRead == 0 {
 		t.Fatalf("barrier=%+v err=%v", result, err)
 	}
 	var observation AgentObservation

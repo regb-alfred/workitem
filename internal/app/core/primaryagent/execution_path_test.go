@@ -10,7 +10,7 @@ import (
 func TestExecutionCWDPrefersCurrentCheckoutOverHistoricalConversationPath(t *testing.T) {
 	current := filepath.Join(t.TempDir(), "slot-0002")
 	m := model.Manifest{Repository: model.Repository{RootAtCreation: "/repo"}, Checkout: model.Checkout{Path: &current}}
-	session := model.PiSession{}
+	session := model.Conversation{}
 	if got := ExecutionCWD(m, session); got != current {
 		t.Fatalf("ExecutionCWD = %q, want %q", got, current)
 	}
@@ -18,7 +18,7 @@ func TestExecutionCWDPrefersCurrentCheckoutOverHistoricalConversationPath(t *tes
 
 func TestExecutionCWDFallsBackWithoutCheckout(t *testing.T) {
 	m := model.Manifest{Repository: model.Repository{RootAtCreation: "/repo"}, Checkout: model.Checkout{}}
-	if got := ExecutionCWD(m, model.PiSession{}); got != "/repo" {
+	if got := ExecutionCWD(m, model.Conversation{}); got != "/repo" {
 		t.Fatalf("repository fallback = %q", got)
 	}
 }

@@ -19,12 +19,24 @@ const (
 )
 
 type Config struct {
-	DeepWork    DeepWorkConfig    `json:"deep_work"`
-	Item        ItemConfig        `json:"item"`
-	List        ListConfig        `json:"list"`
-	AgentStatus AgentStatusConfig `json:"agent_status"`
-	Attention   AttentionConfig   `json:"attention"`
-	Direnv      DirenvConfig      `json:"direnv"`
+	DeepWork    DeepWorkConfig                    `json:"deep_work"`
+	Item        ItemConfig                        `json:"item"`
+	List        ListConfig                        `json:"list"`
+	AgentStatus AgentStatusConfig                 `json:"agent_status"`
+	Attention   AttentionConfig                   `json:"attention"`
+	Direnv      DirenvConfig                      `json:"direnv"`
+	Agents      map[string]AgentDefinitionConfig  `json:"agents"`
+	Drivers     map[string]DriverDefinitionConfig `json:"drivers"`
+}
+
+type AgentDefinitionConfig struct {
+	Driver string         `json:"driver"`
+	Config map[string]any `json:"config,omitempty"`
+}
+
+type DriverDefinitionConfig struct {
+	Command  string         `json:"command,omitempty"`
+	Defaults map[string]any `json:"defaults,omitempty"`
 }
 
 type ProjectConfig struct {
@@ -69,7 +81,7 @@ type DirenvConfig struct {
 }
 
 func Default() Config {
-	return Config{DeepWork: DeepWorkConfig{MaxActive: DefaultMaxDeepWorkActive}, List: ListConfig{RepositoryFolders: DefaultRepositoryFolders}, Attention: AttentionConfig{Priority: priority.DefaultStrategy}}
+	return Config{DeepWork: DeepWorkConfig{MaxActive: DefaultMaxDeepWorkActive}, List: ListConfig{RepositoryFolders: DefaultRepositoryFolders}, Attention: AttentionConfig{Priority: priority.DefaultStrategy}, Agents: map[string]AgentDefinitionConfig{"default": {Driver: "pi", Config: map[string]any{}}}, Drivers: map[string]DriverDefinitionConfig{"pi": {Defaults: map[string]any{}}}}
 }
 
 func Load(path string) (Config, []string, error) {
@@ -107,6 +119,12 @@ func Load(path string) (Config, []string, error) {
 		}
 		key = strings.TrimSpace(key)
 		value = strings.TrimSpace(value)
+		if handled, err := parseAgentDriverSetting(&cfg, section, key, value); handled {
+			if err != nil {
+				return cfg, warnings, fmt.Errorf("parse %s.%s on line %d: %w", section, key, lineNo, err)
+			}
+			continue
+		}
 		switch section + "." + key {
 		case "deep_work.max_active":
 			parsed, err := strconv.Atoi(value)
@@ -172,12 +190,97 @@ func Validate(cfg Config) error {
 	if _, err := priority.Rank(cfg.Attention.Priority, nil); err != nil {
 		return err
 	}
+	defaultAgent, ok := cfg.Agents["default"]
+	if !ok || strings.TrimSpace(defaultAgent.Driver) == "" {
+		return fmt.Errorf("agents.default must select a driver")
+	}
+	for name, definition := range cfg.Agents {
+		if strings.TrimSpace(name) == "" || strings.TrimSpace(definition.Driver) == "" {
+			return fmt.Errorf("agent definitions require a name and driver")
+		}
+		if _, ok := cfg.Drivers[definition.Driver]; !ok {
+			return fmt.Errorf("agent %q selects unconfigured driver %q", name, definition.Driver)
+		}
+	}
 	for _, repository := range cfg.Direnv.AutoTrustRepositories {
 		if !filepath.IsAbs(strings.TrimSpace(repository)) {
 			return fmt.Errorf("direnv.auto_trust_repositories entries must be absolute paths: %q", repository)
 		}
 	}
 	return nil
+}
+
+func parseAgentDriverSetting(cfg *Config, section, key, value string) (bool, error) {
+	parts := strings.Split(section, ".")
+	if len(parts) < 2 {
+		return false, nil
+	}
+	switch parts[0] {
+	case "agents":
+		name := strings.TrimSpace(parts[1])
+		definition := cfg.Agents[name]
+		if len(parts) == 2 && key == "driver" {
+			definition.Driver = parseStringValue(value)
+			if definition.Config == nil {
+				definition.Config = map[string]any{}
+			}
+			cfg.Agents[name] = definition
+			return true, nil
+		}
+		if len(parts) == 3 && parts[2] == "config" {
+			parsed, err := parseDriverValue(value)
+			if err != nil {
+				return true, err
+			}
+			if definition.Config == nil {
+				definition.Config = map[string]any{}
+			}
+			definition.Config[key] = parsed
+			cfg.Agents[name] = definition
+			return true, nil
+		}
+	case "drivers":
+		name := strings.TrimSpace(parts[1])
+		driver := cfg.Drivers[name]
+		if len(parts) == 2 && key == "command" {
+			driver.Command = parseStringValue(value)
+			if driver.Defaults == nil {
+				driver.Defaults = map[string]any{}
+			}
+			cfg.Drivers[name] = driver
+			return true, nil
+		}
+		if len(parts) == 3 && parts[2] == "defaults" {
+			parsed, err := parseDriverValue(value)
+			if err != nil {
+				return true, err
+			}
+			if driver.Defaults == nil {
+				driver.Defaults = map[string]any{}
+			}
+			driver.Defaults[key] = parsed
+			cfg.Drivers[name] = driver
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func parseDriverValue(value string) (any, error) {
+	value = strings.TrimSpace(value)
+	if strings.HasPrefix(value, "[") {
+		return parseStringArray(value)
+	}
+	if value == "true" || value == "false" {
+		return value == "true", nil
+	}
+	if len(value) >= 2 && value[0] == '"' {
+		return parseStringValue(value), nil
+	}
+	if number, err := strconv.Atoi(value); err == nil {
+		return number, nil
+	}
+	return nil, fmt.Errorf("expected a string, string array, boolean, or integer")
 }
 
 func parseStringArray(s string) ([]string, error) {

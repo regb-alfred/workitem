@@ -102,10 +102,10 @@ func TestAgentRuntimeEnvironmentAutoTrustsOnlyConfiguredRepository(t *testing.T)
 
 func TestAgentRuntimeEnvironmentIgnoresReservedControlVariables(t *testing.T) {
 	path := t.TempDir()
-	d := &runtimeDirenv{status: direnvpkg.Status{Found: true, Allowed: true, RCPath: path + "/.envrc"}, env: map[string]string{"WI_ID": "wrong", "PI_CODING_AGENT_SESSION_DIR": "/wrong", "WI_LIST_LABELS": "+project", "WI_ITEM_DEFAULT_LABELS": "project", "SAFE": "value", "TMUX": "/stale", "TMUX_PANE": "%9", "DIRENV_DIFF": "internal"}}
+	d := &runtimeDirenv{status: direnvpkg.Status{Found: true, Allowed: true, RCPath: path + "/.envrc"}, env: map[string]string{"WI_ID": "wrong", "WI_AGENT_CONVERSATION_DIR": "/wrong", "WI_LIST_LABELS": "+project", "WI_ITEM_DEFAULT_LABELS": "project", "SAFE": "value", "TMUX": "/stale", "TMUX_PANE": "%9", "DIRENV_DIFF": "internal"}}
 	a := &App{Direnv: d}
 	env, _, warnings, err := a.agentRuntimeEnvironment(context.Background(), model.Manifest{Checkout: model.Checkout{Path: &path}})
-	if err != nil || env["SAFE"] != "value" || env["WI_LIST_LABELS"] != "+project" || env["WI_ITEM_DEFAULT_LABELS"] != "project" || env["WI_ID"] != "" || env["PI_CODING_AGENT_SESSION_DIR"] != "" || env["TMUX"] != "" || env["TMUX_PANE"] != "" || env["DIRENV_DIFF"] != "" || len(warnings) != 2 {
+	if err != nil || env["SAFE"] != "value" || env["WI_LIST_LABELS"] != "+project" || env["WI_ITEM_DEFAULT_LABELS"] != "project" || env["WI_ID"] != "" || env["WI_AGENT_CONVERSATION_DIR"] != "" || env["TMUX"] != "" || env["TMUX_PANE"] != "" || env["DIRENV_DIFF"] != "" || len(warnings) != 2 {
 		t.Fatalf("env=%v warnings=%v err=%v", env, warnings, err)
 	}
 }
@@ -123,21 +123,21 @@ func TestAgentRuntimeEnvironmentUsesGlobalTmuxEnvironmentAsBase(t *testing.T) {
 
 func TestDirenvBaseEnvironmentScrubsServerAndPanePollution(t *testing.T) {
 	global := map[string]string{
-		"PATH":                        "/clean/bin",
-		"HOME":                        "/home/user",
-		"DISPLAY":                     ":0",
-		"PROJECT_GH_TOKEN":            "secret",
-		"ISSUE_TRACKER_TOKEN":         "tracker-secret",
-		"DIRENV_DIFF":                 encodeTestDirenvDiff(t),
-		"DIRENV_DIR":                  "/stale",
-		"WI_ID":                       "stale-item",
-		"PI_CODING_AGENT_SESSION_DIR": "/stale/pi",
+		"PATH":                      "/clean/bin",
+		"HOME":                      "/home/user",
+		"DISPLAY":                   ":0",
+		"PROJECT_GH_TOKEN":          "secret",
+		"ISSUE_TRACKER_TOKEN":       "tracker-secret",
+		"DIRENV_DIFF":               encodeTestDirenvDiff(t),
+		"DIRENV_DIR":                "/stale",
+		"WI_ID":                     "stale-item",
+		"WI_AGENT_CONVERSATION_DIR": "/stale/conversations",
 	}
 	tmuxClient := fakeBaseTmux{global: global}
 	a := &App{Tmux: tmuxClient}
 	t.Setenv("DIRENV_DIFF", "")
 	base, scrub := a.direnvBaseEnvironment(context.Background())
-	if base["PROJECT_GH_TOKEN"] != "" || base["ISSUE_TRACKER_TOKEN"] != "" || base["WI_ID"] != "" || base["PI_CODING_AGENT_SESSION_DIR"] != "" || base["DIRENV_DIR"] != "" {
+	if base["PROJECT_GH_TOKEN"] != "" || base["ISSUE_TRACKER_TOKEN"] != "" || base["WI_ID"] != "" || base["WI_AGENT_CONVERSATION_DIR"] != "" || base["DIRENV_DIR"] != "" {
 		t.Fatalf("base still contains pollution: %v", base)
 	}
 	if base["PATH"] != "/clean/bin" || base["HOME"] != "/home/user" || base["DISPLAY"] != ":0" {
@@ -147,7 +147,7 @@ func TestDirenvBaseEnvironmentScrubsServerAndPanePollution(t *testing.T) {
 	for _, key := range scrub {
 		scrubSet[key] = true
 	}
-	for _, key := range []string{"PROJECT_GH_TOKEN", "ISSUE_TRACKER_TOKEN", "WI_ID", "PI_CODING_AGENT_SESSION_DIR", "DIRENV_DIR"} {
+	for _, key := range []string{"PROJECT_GH_TOKEN", "ISSUE_TRACKER_TOKEN", "WI_ID", "WI_AGENT_CONVERSATION_DIR", "DIRENV_DIR"} {
 		if !scrubSet[key] {
 			t.Fatalf("scrub list missing %q: %v", key, scrub)
 		}

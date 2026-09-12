@@ -13,11 +13,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/regb/workitem/agentdriver/protocol"
 	"github.com/regb/workitem/internal/agent"
+	piadapter "github.com/regb/workitem/internal/agentdriver/pi"
 	"github.com/regb/workitem/internal/app"
 	gitpkg "github.com/regb/workitem/internal/git"
 	"github.com/regb/workitem/internal/model"
-	piadapter "github.com/regb/workitem/internal/pi"
 	processpkg "github.com/regb/workitem/internal/process"
 	"github.com/regb/workitem/internal/runtimepath"
 	"github.com/regb/workitem/internal/store"
@@ -25,8 +26,30 @@ import (
 	tmuxpkg "github.com/regb/workitem/internal/tmux"
 )
 
+func newTestApp(st *store.Store, git app.Git) *app.App {
+	application := app.New(st, git)
+	application.ConversationBackends["pi"] = fakeConversationBackend{}
+	application.ConversationProjectionObserver = piadapter.ObserveConversation(st.ItemDir)
+	return application
+}
+
+type fakeConversationBackend struct{}
+
+func (fakeConversationBackend) NewConversation(_ context.Context, id, _ string, _ json.RawMessage) (model.Conversation, error) {
+	return piadapter.New("pi").NewConversation(id), nil
+}
+func (fakeConversationBackend) ConversationCWD(context.Context, string) (string, error) {
+	return "", nil
+}
+func (fakeConversationBackend) ForkConversation(context.Context, string, string, string) error {
+	return nil
+}
+func (fakeConversationBackend) ObserveConversation(context.Context, model.Conversation, string, time.Time) (driverprotocol.ConversationObservation, []string, error) {
+	return driverprotocol.ConversationObservation{}, nil, nil
+}
+
 type fakeGit struct {
-	info          gitpkg.RepositoryInfo
+	info          model.RepositoryInfo
 	head          string
 	status        string
 	currentBranch string
@@ -39,7 +62,7 @@ func newFakeGit(t *testing.T) *fakeGit {
 	return &fakeGit{info: repoInfo(t), branches: map[string]bool{}, worktrees: map[string]string{}}
 }
 
-func (f *fakeGit) DetectRepository(ctx context.Context, dir, revision string) (gitpkg.RepositoryInfo, error) {
+func (f *fakeGit) DetectRepository(ctx context.Context, dir, revision string) (model.RepositoryInfo, error) {
 	return f.info, nil
 }
 func (f *fakeGit) DefaultBranch(context.Context, string) (string, error) { return "main", nil }
@@ -258,22 +281,21 @@ type fakePi struct {
 	mode        agent.Mode
 	logPath     string
 	controlPath string
+	eventPath   string
 }
 
-func (f *fakePi) ExecMode(ctx context.Context, spec piadapter.ExecSpec) error {
-	f.sessionPath = spec.SessionPath
-	f.cwd = spec.CWD
-	f.env = spec.Env
-	f.mode = spec.Mode
-	f.logPath = spec.LogPath
-	f.controlPath = spec.ControlSocketPath
-	return nil
+func (f *fakePi) NewConversation(_ context.Context, id, _ string, _ json.RawMessage) (model.Conversation, error) {
+	return piadapter.New("pi").NewConversation(id), nil
 }
-func (f *fakePi) SessionCWD(path string) (string, error) {
-	return piadapter.New("pi").SessionCWD(path)
+func (f *fakePi) ConversationCWD(_ context.Context, path string) (string, error) {
+	return piadapter.New("pi").ConversationCWD(path)
 }
-func (f *fakePi) ForkSession(ctx context.Context, sourcePath, targetPath, targetCWD string) error {
-	return piadapter.New("pi").ForkSession(ctx, sourcePath, targetPath, targetCWD)
+func (f *fakePi) ObserveConversation(_ context.Context, conversation model.Conversation, path string, now time.Time) (driverprotocol.ConversationObservation, []string, error) {
+	status, warnings := piadapter.ObserveConversationPath(path, now)
+	return status, warnings, nil
+}
+func (f *fakePi) ForkConversation(ctx context.Context, sourcePath, targetPath, targetCWD string) error {
+	return piadapter.New("pi").ForkConversation(ctx, sourcePath, targetPath, targetCWD)
 }
 
 type fakeRuntimeLauncher struct {
@@ -302,7 +324,7 @@ func TestShutdownAllForceStopsTrackedRuntimeAndClosesOwnedTmuxSessions(t *testin
 	fg := newFakeGit(t)
 	ft := &fakeTmux{sessions: map[string]bool{}, sessionEnvs: map[string]map[string]string{}}
 	fp := &fakeProcess{alive: map[int]bool{321: true}}
-	application := app.New(st, fg)
+	application := newTestApp(st, fg)
 	application.Tmux = ft
 	application.Process = fp
 	application.Clock = fixedClock{testutil.Time()}
@@ -321,9 +343,9 @@ func TestShutdownAllForceStopsTrackedRuntimeAndClosesOwnedTmuxSessions(t *testin
 	canonicalDir := st.ItemDir(itemID)
 	ft.sessions[canonicalSession] = true
 	ft.sessionEnvs[canonicalSession] = map[string]string{
-		"WI_ID":                       itemID,
-		"WI_DIR":                      canonicalDir,
-		"PI_CODING_AGENT_SESSION_DIR": filepath.Join(canonicalDir, "sessions", "pi"),
+		"WI_ID":                     itemID,
+		"WI_DIR":                    canonicalDir,
+		"WI_AGENT_CONVERSATION_DIR": filepath.Join(canonicalDir, "sessions"),
 	}
 
 	orphanID := testutil.ID(t, 91)
@@ -331,9 +353,9 @@ func TestShutdownAllForceStopsTrackedRuntimeAndClosesOwnedTmuxSessions(t *testin
 	orphanDir := st.ItemDir(orphanID)
 	ft.sessions[orphanSession] = true
 	ft.sessionEnvs[orphanSession] = map[string]string{
-		"WI_ID":                       orphanID,
-		"WI_DIR":                      orphanDir,
-		"PI_CODING_AGENT_SESSION_DIR": filepath.Join(orphanDir, "sessions", "pi"),
+		"WI_ID":                     orphanID,
+		"WI_DIR":                    orphanDir,
+		"WI_AGENT_CONVERSATION_DIR": filepath.Join(orphanDir, "sessions"),
 	}
 	spoofedSession := model.TerminalSessionName(testutil.ID(t, 92))
 	ft.sessions[spoofedSession] = true
@@ -368,7 +390,7 @@ func TestShutdownAllLeavesTerminalWhenRuntimeCannotBeStopped(t *testing.T) {
 	fg := newFakeGit(t)
 	ft := &fakeTmux{sessions: map[string]bool{}}
 	fp := &fakeProcess{alive: map[int]bool{654: true}}
-	application := app.New(st, fg)
+	application := newTestApp(st, fg)
 	application.Tmux = ft
 	application.Process = fp
 	application.Clock = fixedClock{testutil.Time()}
@@ -421,7 +443,7 @@ func piMessage(ts time.Time, role string, content []map[string]any) map[string]a
 func TestStateTransitionsAndCapacity(t *testing.T) {
 	st := store.New(t.TempDir())
 	fg := newFakeGit(t)
-	application := app.New(st, fg)
+	application := newTestApp(st, fg)
 	application.Tmux = &fakeTmux{}
 	application.Clock = fixedClock{testutil.Time()}
 	application.DeepWorkConfig.MaxActive = 1
@@ -485,7 +507,7 @@ func TestResumeWorkItemAttachesWorkspace(t *testing.T) {
 	st := store.New(t.TempDir())
 	fg := newFakeGit(t)
 	ft := &fakeTmux{}
-	application := app.New(st, fg)
+	application := newTestApp(st, fg)
 	application.Tmux = ft
 	application.Clock = fixedClock{testutil.Time()}
 	ids := []string{testutil.ID(t, 69), testutil.ID(t, 70)}
@@ -518,7 +540,7 @@ func TestShelveDirtyCheckoutDoesNotKillTmux(t *testing.T) {
 	st := store.New(t.TempDir())
 	fg := newFakeGit(t)
 	ft := &fakeTmux{}
-	application := app.New(st, fg)
+	application := newTestApp(st, fg)
 	application.Tmux = ft
 	application.Clock = fixedClock{testutil.Time()}
 	ids := []string{testutil.ID(t, 62), testutil.ID(t, 63)}
@@ -551,7 +573,7 @@ func TestShelveDoesNotReleaseCheckoutWhenTmuxCloseFails(t *testing.T) {
 	st := store.New(t.TempDir())
 	fg := newFakeGit(t)
 	ft := &fakeTmux{killErr: errors.New("tmux refused")}
-	application := app.New(st, fg)
+	application := newTestApp(st, fg)
 	application.Tmux = ft
 	application.Clock = fixedClock{testutil.Time()}
 	ids := []string{testutil.ID(t, 56), testutil.ID(t, 57)}
@@ -584,7 +606,7 @@ func TestShelveForceFromCurrentTmuxLeavesWorkspaceAssigned(t *testing.T) {
 	st := store.New(t.TempDir())
 	fg := newFakeGit(t)
 	ft := &fakeTmux{}
-	application := app.New(st, fg)
+	application := newTestApp(st, fg)
 	application.Tmux = ft
 	application.Clock = fixedClock{testutil.Time()}
 	ids := []string{testutil.ID(t, 58), testutil.ID(t, 59)}
@@ -621,7 +643,7 @@ func TestShelveForceFromCurrentTmuxLeavesWorkspaceAssigned(t *testing.T) {
 func TestArchiveRestoreAndListOrdering(t *testing.T) {
 	st := store.New(t.TempDir())
 	fg := newFakeGit(t)
-	application := app.New(st, fg)
+	application := newTestApp(st, fg)
 	application.Tmux = &fakeTmux{}
 	application.Clock = fixedClock{testutil.Time()}
 	application.DeepWorkConfig.MaxActive = 1
@@ -660,7 +682,7 @@ func TestArchiveRestoreAndListOrdering(t *testing.T) {
 
 func TestWorkListCombinesPositiveAndNegativeLabelRules(t *testing.T) {
 	st := store.New(t.TempDir())
-	application := app.New(st, newFakeGit(t))
+	application := newTestApp(st, newFakeGit(t))
 	application.Clock = fixedClock{testutil.Time()}
 	ids := []string{testutil.ID(t, 73), testutil.ID(t, 74), testutil.ID(t, 75)}
 	idx := 0
@@ -684,7 +706,7 @@ func TestWorkListCombinesPositiveAndNegativeLabelRules(t *testing.T) {
 func TestArchivedItemsLoseSlugAndDoNotReserveIt(t *testing.T) {
 	st := store.New(t.TempDir())
 	fg := newFakeGit(t)
-	application := app.New(st, fg)
+	application := newTestApp(st, fg)
 	application.Clock = fixedClock{testutil.Time()}
 	ids := []string{testutil.ID(t, 52), testutil.ID(t, 53)}
 	idx := 0
@@ -733,7 +755,7 @@ func TestArchivedItemsLoseSlugAndDoNotReserveIt(t *testing.T) {
 func TestCheckoutCreateRejectsArchivedItem(t *testing.T) {
 	st := store.New(t.TempDir())
 	fg := newFakeGit(t)
-	application := app.New(st, fg)
+	application := newTestApp(st, fg)
 	application.Clock = fixedClock{testutil.Time()}
 	application.NewID = func() (string, error) { return testutil.ID(t, 60), nil }
 	newRes, err := application.NewWorkItem(context.Background(), app.NewWorkItemOptions{Title: "Archived Checkout", CWD: t.TempDir()})
@@ -751,7 +773,7 @@ func TestCheckoutCreateRejectsArchivedItem(t *testing.T) {
 func TestCheckoutStatusReportsBranchMismatch(t *testing.T) {
 	st := store.New(t.TempDir())
 	fg := newFakeGit(t)
-	application := app.New(st, fg)
+	application := newTestApp(st, fg)
 	application.Tmux = &fakeTmux{}
 	application.Clock = fixedClock{testutil.Time()}
 	ids := []string{testutil.ID(t, 64), testutil.ID(t, 65)}
@@ -781,7 +803,7 @@ func TestSwitchWorkItemMaterializesMissingWorkspaceWithoutChangingState(t *testi
 	st := store.New(t.TempDir())
 	fg := newFakeGit(t)
 	ft := &fakeTmux{}
-	application := app.New(st, fg)
+	application := newTestApp(st, fg)
 	application.Tmux = ft
 	application.Clock = fixedClock{testutil.Time()}
 	ids := []string{testutil.ID(t, 52), testutil.ID(t, 53)}
@@ -802,7 +824,7 @@ func TestSwitchWorkItemMaterializesMissingWorkspaceWithoutChangingState(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
-	if switched.Manifest.State != model.StateWorking || !switched.Checkout.Present() || switched.Manifest.RootPiSession == nil {
+	if switched.Manifest.State != model.StateWorking || !switched.Checkout.Present() || switched.Manifest.PrimaryConversation == nil {
 		t.Fatalf("switch porcelain = %+v", switched)
 	}
 	persisted, err := st.LoadManifest(created.Manifest.ID)
@@ -818,7 +840,7 @@ func TestSwitchWorkItemDoesNotChangeWaitingState(t *testing.T) {
 	st := store.New(t.TempDir())
 	fg := newFakeGit(t)
 	ft := &fakeTmux{}
-	application := app.New(st, fg)
+	application := newTestApp(st, fg)
 	application.Tmux = ft
 	application.Clock = fixedClock{testutil.Time()}
 	ids := []string{testutil.ID(t, 54), testutil.ID(t, 55)}
@@ -863,10 +885,10 @@ func TestSwitchWorkItemRecyclesOrphanedTUIRuntimeWhenTerminalIsGone(t *testing.T
 	fg := newFakeGit(t)
 	ft := &fakeTmux{sessions: map[string]bool{}}
 	fp := &fakeProcess{alive: map[int]bool{}}
-	application := app.New(st, fg)
+	application := newTestApp(st, fg)
 	application.Tmux = ft
 	application.Process = fp
-	application.Pi = &fakePi{}
+	application.ConversationBackends["pi"] = &fakePi{}
 	application.Clock = fixedClock{testutil.Time()}
 	ids := []string{testutil.ID(t, 80), testutil.ID(t, 81)}
 	idx := 0
@@ -881,7 +903,7 @@ func TestSwitchWorkItemRecyclesOrphanedTUIRuntimeWhenTerminalIsGone(t *testing.T
 	}
 	itemID := started.Workspace.Manifest.ID
 	session := started.Workspace.Manifest.TerminalSessionName()
-	conversationID := started.Workspace.Manifest.RootPiSession.ID
+	conversationID := started.Workspace.Manifest.PrimaryConversation.ID
 	runtime := model.AgentRuntime{ID: "tui-orphan", WorkItemID: itemID, Mode: "tui", State: model.AgentRuntimeRunning, HostPID: 444, HostProcessGroup: 444, HostStartTime: 444, ConversationID: conversationID, StartedAt: testutil.Time(), UpdatedAt: testutil.Time()}
 	if err := st.SaveAgentRuntime(context.Background(), itemID, runtime); err != nil {
 		t.Fatal(err)
@@ -916,7 +938,7 @@ func TestSwitchWorkItemWarnsWhenAlreadyInTargetTmuxSession(t *testing.T) {
 	st := store.New(t.TempDir())
 	fg := newFakeGit(t)
 	ft := &fakeTmux{}
-	application := app.New(st, fg)
+	application := newTestApp(st, fg)
 	application.Tmux = ft
 	application.Clock = fixedClock{testutil.Time()}
 	ids := []string{testutil.ID(t, 71), testutil.ID(t, 72)}
@@ -947,7 +969,7 @@ func TestSwitchWorkItemWarnsWhenAlreadyInTargetTmuxSession(t *testing.T) {
 func TestSwitchWorkItemRejectsBacklog(t *testing.T) {
 	st := store.New(t.TempDir())
 	fg := newFakeGit(t)
-	application := app.New(st, fg)
+	application := newTestApp(st, fg)
 	application.Tmux = &fakeTmux{}
 	application.Clock = fixedClock{testutil.Time()}
 	id := testutil.ID(t, 56)
@@ -965,7 +987,7 @@ func TestCoreWorkspaceAndTmuxAdapterAreIndependent(t *testing.T) {
 	st := store.New(t.TempDir())
 	fg := newFakeGit(t)
 	ft := &fakeTmux{}
-	application := app.New(st, fg)
+	application := newTestApp(st, fg)
 	application.Tmux = ft
 	application.Clock = fixedClock{testutil.Time()}
 	application.NewID = func() (string, error) { return testutil.ID(t, 57), nil }
@@ -977,7 +999,7 @@ func TestCoreWorkspaceAndTmuxAdapterAreIndependent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !workspace.Checkout.Present() || len(ft.ensured) != 0 || workspace.Manifest.RootPiSession != nil {
+	if !workspace.Checkout.Present() || len(ft.ensured) != 0 || workspace.Manifest.PrimaryConversation != nil {
 		t.Fatalf("workspace ensure crossed boundaries: workspace=%+v tmux=%+v", workspace, ft.ensured)
 	}
 	terminal, err := application.EnsureTerminal(context.Background(), app.ResolveOptions{Selector: created.Manifest.ID})
@@ -988,7 +1010,7 @@ func TestCoreWorkspaceAndTmuxAdapterAreIndependent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !terminal.Created || len(ft.ensured) != 1 || afterTerminal.RootPiSession != nil {
+	if !terminal.Created || len(ft.ensured) != 1 || afterTerminal.PrimaryConversation != nil {
 		t.Fatalf("terminal ensure crossed agent boundary: terminal=%+v manifest=%+v tmux=%+v", terminal, afterTerminal, ft.ensured)
 	}
 	if _, err := application.ReleaseWorkItemWorkspace(context.Background(), app.ResolveOptions{Selector: created.Manifest.ID}, false); err == nil || !strings.Contains(err.Error(), "terminal session") {
@@ -1009,7 +1031,7 @@ func TestCoreWorkspaceAndTmuxAdapterAreIndependent(t *testing.T) {
 func TestLabelAddRemove(t *testing.T) {
 	st := store.New(t.TempDir())
 	fg := newFakeGit(t)
-	application := app.New(st, fg)
+	application := newTestApp(st, fg)
 	application.Clock = fixedClock{testutil.Time()}
 	id := testutil.ID(t, 46)
 	application.NewID = func() (string, error) { return id, nil }
@@ -1036,7 +1058,7 @@ func TestLabelAddRemove(t *testing.T) {
 func TestNewWorkItemAllocatesUniqueSlugs(t *testing.T) {
 	st := store.New(t.TempDir())
 	fg := newFakeGit(t)
-	application := app.New(st, fg)
+	application := newTestApp(st, fg)
 	application.Clock = fixedClock{testutil.Time()}
 	ids := []string{testutil.ID(t, 50), testutil.ID(t, 51)}
 	idx := 0
@@ -1073,7 +1095,7 @@ func TestNewWorkItemCreatesBacklogWithoutCheckout(t *testing.T) {
 	id := testutil.ID(t, 7)
 	now := testutil.Time()
 	fg := newFakeGit(t)
-	application := app.New(st, fg)
+	application := newTestApp(st, fg)
 	application.Clock = fixedClock{now}
 	application.NewID = func() (string, error) { return id, nil }
 
@@ -1128,7 +1150,7 @@ func TestStartWorkItemLaunchesPrimaryPiSession(t *testing.T) {
 	sessionID := testutil.ID(t, 17)
 	fg := newFakeGit(t)
 	ft := &fakeTmux{}
-	application := app.New(st, fg)
+	application := newTestApp(st, fg)
 	application.Tmux = ft
 	application.SelfPath = "/usr/local/bin/wi"
 	application.Clock = fixedClock{testutil.Time()}
@@ -1147,11 +1169,11 @@ func TestStartWorkItemLaunchesPrimaryPiSession(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res.Workspace.Manifest.RootPiSession == nil {
-		t.Fatal("root Pi session missing")
+	if res.Workspace.Manifest.PrimaryConversation == nil {
+		t.Fatal("primary conversation missing")
 	}
-	s := *res.Workspace.Manifest.RootPiSession
-	if s.ID != sessionID || s.Path != "sessions/pi/"+sessionID+".jsonl" {
+	s := *res.Workspace.Manifest.PrimaryConversation
+	if s.ID != sessionID || s.Driver != "pi" || s.NativeLocator() != "sessions/pi/"+sessionID+".jsonl" {
 		t.Fatalf("session = %+v", s)
 	}
 	if len(ft.launched) != 1 || !ft.launched[0].ReuseAgentWindow {
@@ -1161,12 +1183,9 @@ func TestStartWorkItemLaunchesPrimaryPiSession(t *testing.T) {
 	if err != nil || runtime == nil || runtime.Mode != string(agent.ModeTUI) {
 		t.Fatalf("agent runtime = %+v err=%v", runtime, err)
 	}
-	wantCmd := []string{"/usr/local/bin/wi", "agent", "exec", "--item", itemID, "--session", sessionID, "--runtime", runtime.ID, "--mode", "tui"}
+	wantCmd := []string{"/usr/local/bin/wi", "agent", "exec", "--item", itemID, "--conversation", sessionID, "--runtime", runtime.ID, "--mode", "tui"}
 	if strings.Join(ft.launched[0].Command, " ") != strings.Join(wantCmd, " ") {
 		t.Fatalf("command = %+v, want %+v", ft.launched[0].Command, wantCmd)
-	}
-	if ft.launched[0].Env["PI_CODING_AGENT_SESSION_DIR"] != filepath.Join(st.ItemDir(itemID), "sessions", "pi") {
-		t.Fatalf("Pi session dir env = %q", ft.launched[0].Env["PI_CODING_AGENT_SESSION_DIR"])
 	}
 	if _, err := os.Stat(filepath.Join(st.ItemDir(itemID), "sessions", "pi", sessionID+".jsonl")); err != nil {
 		t.Fatalf("session file missing: %v", err)
@@ -1186,7 +1205,7 @@ func TestAgentStatusDerivesBusyFromPiSessionAndProcess(t *testing.T) {
 	sessionID := testutil.ID(t, 36)
 	fg := newFakeGit(t)
 	fp := &fakeProcess{alive: map[int]bool{123: true, 456: true}, descendant: processpkg.Info{PID: 456, Command: "pi", Cmdline: []string{"pi"}}, found: true}
-	application := app.New(st, fg)
+	application := newTestApp(st, fg)
 	application.Tmux = &fakeTmux{}
 	application.Process = fp
 	now := testutil.Time()
@@ -1202,13 +1221,13 @@ func TestAgentStatusDerivesBusyFromPiSessionAndProcess(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	sessionPath := filepath.Join(st.ItemDir(itemID), started.Workspace.Manifest.RootPiSession.Path)
+	sessionPath := filepath.Join(st.ItemDir(itemID), started.Workspace.Manifest.PrimaryConversation.NativeLocator())
 	appendPiJSONL(t, sessionPath, piMessage(now.Add(-time.Minute), "user", []map[string]any{{"type": "text", "text": "please work"}}))
 	status, err := application.AgentStatus(context.Background(), app.AgentStatusOptions{ResolveOptions: app.ResolveOptions{Selector: itemID}, StaleAfter: 10 * time.Minute})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if status.Status != "busy" || status.PiSession.InferredTurnState != "incomplete" || !status.Process.Online || status.Process.PiPID != 456 {
+	if status.Status != "busy" || status.Conversation.InferredTurnState != "incomplete" || !status.Process.Online || status.Process.BackendPID != 456 {
 		t.Fatalf("status = %+v", status)
 	}
 }
@@ -1219,7 +1238,7 @@ func TestAgentStatusIgnoresPiSessionMetadataForTurnState(t *testing.T) {
 	sessionID := testutil.ID(t, 77)
 	fg := newFakeGit(t)
 	fp := &fakeProcess{alive: map[int]bool{123: true, 456: true}, descendant: processpkg.Info{PID: 456, Command: "pi", Cmdline: []string{"pi"}}, found: true}
-	application := app.New(st, fg)
+	application := newTestApp(st, fg)
 	application.Tmux = &fakeTmux{}
 	application.Process = fp
 	now := testutil.Time()
@@ -1235,7 +1254,7 @@ func TestAgentStatusIgnoresPiSessionMetadataForTurnState(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	sessionPath := filepath.Join(st.ItemDir(itemID), started.Workspace.Manifest.RootPiSession.Path)
+	sessionPath := filepath.Join(st.ItemDir(itemID), started.Workspace.Manifest.PrimaryConversation.NativeLocator())
 	appendPiJSONL(t, sessionPath,
 		map[string]any{"type": "session", "timestamp": now.Add(-time.Hour).Format(time.RFC3339Nano)},
 		map[string]any{"type": "model_change", "timestamp": now.Add(-time.Hour).Format(time.RFC3339Nano)},
@@ -1245,7 +1264,7 @@ func TestAgentStatusIgnoresPiSessionMetadataForTurnState(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if status.Status != "idle" || status.PiSession.InferredTurnState != "idle" || status.PiSession.LastTurnActivity != nil || status.PiSession.LastEvent == nil || status.PiSession.LastEvent.Type != "thinking_level_change" || status.PiSession.LastActivityAgeSeconds != 0 {
+	if status.Status != "idle" || status.Conversation.InferredTurnState != "idle" || status.Conversation.LastTurnActivity != nil || status.Conversation.LastEvent == nil || status.Conversation.LastEvent.Type != "thinking_level_change" || status.Conversation.LastActivityAgeSeconds != 0 {
 		t.Fatalf("status = %+v", status)
 	}
 }
@@ -1253,7 +1272,7 @@ func TestAgentStatusIgnoresPiSessionMetadataForTurnState(t *testing.T) {
 func TestAttentionQueueRanksRecentRequestsBeforeDeferredItems(t *testing.T) {
 	st := store.New(t.TempDir())
 	fg := newFakeGit(t)
-	application := app.New(st, fg)
+	application := newTestApp(st, fg)
 	application.Tmux = &fakeTmux{}
 	application.Process = &fakeProcess{alive: map[int]bool{123: true}}
 	base := testutil.Time()
@@ -1277,7 +1296,7 @@ func TestAttentionQueueRanksRecentRequestsBeforeDeferredItems(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		items[name] = createdItem{id: created.Manifest.ID, sessionPath: filepath.Join(st.ItemDir(created.Manifest.ID), started.Workspace.Manifest.RootPiSession.Path)}
+		items[name] = createdItem{id: created.Manifest.ID, sessionPath: filepath.Join(st.ItemDir(created.Manifest.ID), started.Workspace.Manifest.PrimaryConversation.NativeLocator())}
 	}
 	minutes := map[string]int{"A": 1, "E": 3, "F": 2, "B": 8}
 	for name, item := range items {
@@ -1426,7 +1445,7 @@ func TestArchiveStopsRuntimeBeforeArchiving(t *testing.T) {
 	st := store.New(root)
 	fg := newFakeGit(t)
 	proc := &fakeProcess{alive: map[int]bool{4321: true}}
-	application := app.New(st, fg)
+	application := newTestApp(st, fg)
 	application.Process = proc
 	application.Clock = fixedClock{testutil.Time()}
 	itemID := testutil.ID(t, 77)
@@ -1435,7 +1454,7 @@ func TestArchiveStopsRuntimeBeforeArchiving(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	runtime := model.AgentRuntime{ID: "runtime-archive", WorkItemID: itemID, Mode: string(agent.ModeRPC), HostPID: 4321, HostProcessGroup: 4321, HostStartTime: 4321}
+	runtime := model.AgentRuntime{ID: "runtime-archive", WorkItemID: itemID, Mode: string(agent.ModeHeadless), HostPID: 4321, HostProcessGroup: 4321, HostStartTime: 4321}
 	if err := st.SaveAgentRuntime(context.Background(), itemID, runtime); err != nil {
 		t.Fatal(err)
 	}
@@ -1475,7 +1494,7 @@ func TestNextWorkItemArchivePersistsBeforeSchedulingPreviousTerminalClose(t *tes
 	st := store.New(t.TempDir())
 	fg := newFakeGit(t)
 	mux := &fakeTmux{}
-	application := app.New(st, fg)
+	application := newTestApp(st, fg)
 	application.Tmux = mux
 	application.Clock = fixedClock{testutil.Time()}
 	ids := []string{testutil.ID(t, 81), testutil.ID(t, 82), testutil.ID(t, 83), testutil.ID(t, 84)}
@@ -1491,7 +1510,7 @@ func TestNextWorkItemArchivePersistsBeforeSchedulingPreviousTerminalClose(t *tes
 		if err != nil {
 			t.Fatal(err)
 		}
-		appendPiJSONL(t, filepath.Join(st.ItemDir(item.Manifest.ID), started.Workspace.Manifest.RootPiSession.Path),
+		appendPiJSONL(t, filepath.Join(st.ItemDir(item.Manifest.ID), started.Workspace.Manifest.PrimaryConversation.NativeLocator()),
 			piMessage(testutil.Time().Add(time.Minute), "user", []map[string]any{{"type": "text", "text": "work"}}),
 			piMessage(testutil.Time().Add(time.Minute+time.Second), "assistant", []map[string]any{{"type": "text", "text": "done"}}),
 		)
@@ -1520,7 +1539,7 @@ func TestNextWorkItemArchiveJSONModeDoesNotPretendTmuxSwitched(t *testing.T) {
 	st := store.New(t.TempDir())
 	fg := newFakeGit(t)
 	mux := &fakeTmux{}
-	application := app.New(st, fg)
+	application := newTestApp(st, fg)
 	application.Tmux = mux
 	application.Clock = fixedClock{testutil.Time()}
 	ids := []string{testutil.ID(t, 89), testutil.ID(t, 90), testutil.ID(t, 91), testutil.ID(t, 92)}
@@ -1536,7 +1555,7 @@ func TestNextWorkItemArchiveJSONModeDoesNotPretendTmuxSwitched(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		appendPiJSONL(t, filepath.Join(st.ItemDir(item.Manifest.ID), started.Workspace.Manifest.RootPiSession.Path),
+		appendPiJSONL(t, filepath.Join(st.ItemDir(item.Manifest.ID), started.Workspace.Manifest.PrimaryConversation.NativeLocator()),
 			piMessage(testutil.Time().Add(time.Minute), "user", []map[string]any{{"type": "text", "text": "work"}}),
 			piMessage(testutil.Time().Add(time.Minute+time.Second), "assistant", []map[string]any{{"type": "text", "text": "done"}}),
 		)
@@ -1556,7 +1575,7 @@ func TestNextWorkItemArchiveJSONModeDoesNotPretendTmuxSwitched(t *testing.T) {
 func TestNextWorkItemArchivePreflightFailsBeforeSwitching(t *testing.T) {
 	st := store.New(t.TempDir())
 	fg := newFakeGit(t)
-	application := app.New(st, fg)
+	application := newTestApp(st, fg)
 	application.Tmux = &fakeTmux{}
 	application.Clock = fixedClock{testutil.Time()}
 	ids := []string{testutil.ID(t, 85), testutil.ID(t, 86), testutil.ID(t, 87), testutil.ID(t, 88)}
@@ -1572,7 +1591,7 @@ func TestNextWorkItemArchivePreflightFailsBeforeSwitching(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		appendPiJSONL(t, filepath.Join(st.ItemDir(item.Manifest.ID), started.Workspace.Manifest.RootPiSession.Path),
+		appendPiJSONL(t, filepath.Join(st.ItemDir(item.Manifest.ID), started.Workspace.Manifest.PrimaryConversation.NativeLocator()),
 			piMessage(testutil.Time().Add(time.Minute), "user", []map[string]any{{"type": "text", "text": "work"}}),
 			piMessage(testutil.Time().Add(time.Minute+time.Second), "assistant", []map[string]any{{"type": "text", "text": "done"}}),
 		)
@@ -1590,7 +1609,7 @@ func TestNextWorkItemArchivePreflightFailsBeforeSwitching(t *testing.T) {
 }
 
 func TestNextWorkItemFailsForEmptyAttentionRing(t *testing.T) {
-	application := app.New(store.New(t.TempDir()), newFakeGit(t))
+	application := newTestApp(store.New(t.TempDir()), newFakeGit(t))
 	if _, err := application.NextWorkItem(context.Background(), app.NextWorkItemOptions{}, false); err == nil || !strings.Contains(err.Error(), "nothing needs attention") {
 		t.Fatalf("error = %v", err)
 	}
@@ -1603,7 +1622,7 @@ func TestAgentStatusDerivesIdleWithChangedWorktreeFromFinalAnswerAndGitChanges(t
 	fg := newFakeGit(t)
 	fg.status = " M file.go"
 	fp := &fakeProcess{alive: map[int]bool{123: true}}
-	application := app.New(st, fg)
+	application := newTestApp(st, fg)
 	application.Tmux = &fakeTmux{}
 	application.Process = fp
 	now := testutil.Time()
@@ -1619,7 +1638,7 @@ func TestAgentStatusDerivesIdleWithChangedWorktreeFromFinalAnswerAndGitChanges(t
 	if err != nil {
 		t.Fatal(err)
 	}
-	sessionPath := filepath.Join(st.ItemDir(itemID), started.Workspace.Manifest.RootPiSession.Path)
+	sessionPath := filepath.Join(st.ItemDir(itemID), started.Workspace.Manifest.PrimaryConversation.NativeLocator())
 	appendPiJSONL(t, sessionPath,
 		piMessage(now.Add(-2*time.Minute), "user", []map[string]any{{"type": "text", "text": "please implement"}}),
 		piMessage(now.Add(-time.Minute), "assistant", []map[string]any{{"type": "text", "text": "Implemented and tested."}}),
@@ -1628,7 +1647,7 @@ func TestAgentStatusDerivesIdleWithChangedWorktreeFromFinalAnswerAndGitChanges(t
 	if err != nil {
 		t.Fatal(err)
 	}
-	if status.Status != "idle" || status.PiSession.InferredTurnState != "idle" || status.Worktree == nil || status.Worktree.Status != "changed" || !status.Worktree.HasChanges {
+	if status.Status != "idle" || status.Conversation.InferredTurnState != "idle" || status.Worktree == nil || status.Worktree.Status != "changed" || !status.Worktree.HasChanges {
 		t.Fatalf("status = %+v", status)
 	}
 }
@@ -1639,7 +1658,7 @@ func TestAgentStatusDerivesProblemWhenIncompleteAndOffline(t *testing.T) {
 	sessionID := testutil.ID(t, 40)
 	fg := newFakeGit(t)
 	fp := &fakeProcess{alive: map[int]bool{}}
-	application := app.New(st, fg)
+	application := newTestApp(st, fg)
 	application.Tmux = &fakeTmux{}
 	application.Process = fp
 	now := testutil.Time()
@@ -1655,7 +1674,7 @@ func TestAgentStatusDerivesProblemWhenIncompleteAndOffline(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	sessionPath := filepath.Join(st.ItemDir(itemID), started.Workspace.Manifest.RootPiSession.Path)
+	sessionPath := filepath.Join(st.ItemDir(itemID), started.Workspace.Manifest.PrimaryConversation.NativeLocator())
 	appendPiJSONL(t, sessionPath, piMessage(now.Add(-time.Hour), "assistant", []map[string]any{{"type": "toolCall"}}))
 	status, err := application.AgentStatus(context.Background(), app.AgentStatusOptions{ResolveOptions: app.ResolveOptions{Selector: itemID}, StaleAfter: 10 * time.Minute})
 	if err != nil {
@@ -1666,13 +1685,13 @@ func TestAgentStatusDerivesProblemWhenIncompleteAndOffline(t *testing.T) {
 	}
 }
 
-func TestStartRecreatedTmuxResumesRootPiSession(t *testing.T) {
+func TestStartRecreatedTmuxResumesPrimaryConversation(t *testing.T) {
 	st := store.New(t.TempDir())
 	itemID := testutil.ID(t, 25)
 	sessionID := testutil.ID(t, 26)
 	fg := newFakeGit(t)
 	ft := &fakeTmux{}
-	application := app.New(st, fg)
+	application := newTestApp(st, fg)
 	application.Tmux = ft
 	application.SelfPath = "wi"
 	application.Clock = fixedClock{testutil.Time()}
@@ -1695,7 +1714,7 @@ func TestStartRecreatedTmuxResumesRootPiSession(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !started.Workspace.Terminal.Created || !started.Workspace.PiLaunched || started.Workspace.PiSession == nil || started.Workspace.PiSession.ID != sessionID {
+	if !started.Workspace.Terminal.Created || !started.Workspace.AgentLaunched || started.Workspace.Conversation == nil || started.Workspace.Conversation.ID != sessionID {
 		t.Fatalf("start result = %+v", started)
 	}
 	if len(ft.launched) != 1 || !ft.launched[0].ReuseAgentWindow {
@@ -1703,7 +1722,7 @@ func TestStartRecreatedTmuxResumesRootPiSession(t *testing.T) {
 	}
 }
 
-func TestHeadlessRPCRuntimeUsesNativeControlWithoutTmux(t *testing.T) {
+func TestHeadlessRuntimeUsesNativeControlWithoutTmux(t *testing.T) {
 	st := store.New(t.TempDir())
 	itemID := testutil.ID(t, 111)
 	sessionID := testutil.ID(t, 112)
@@ -1711,7 +1730,7 @@ func TestHeadlessRPCRuntimeUsesNativeControlWithoutTmux(t *testing.T) {
 	ft := &fakeTmux{}
 	fp := &fakeProcess{alive: map[int]bool{4321: true}}
 	launcher := &fakeRuntimeLauncher{pid: 4321}
-	application := app.New(st, fg)
+	application := newTestApp(st, fg)
 	application.Tmux = ft
 	application.Process = fp
 	application.AgentRuntimeLauncher = launcher
@@ -1731,18 +1750,18 @@ func TestHeadlessRPCRuntimeUsesNativeControlWithoutTmux(t *testing.T) {
 	if _, err := application.SetWorkItemState(context.Background(), app.ResolveOptions{Selector: itemID}, model.StateWorking, false); err != nil {
 		t.Fatal(err)
 	}
-	ensured, err := application.EnsureAgentRuntime(context.Background(), app.ResolveOptions{Selector: created.Manifest.ID}, agent.ModeRPC)
+	ensured, err := application.EnsureAgentRuntime(context.Background(), app.ResolveOptions{Selector: created.Manifest.ID}, agent.ModeHeadless)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !ensured.Created || ensured.Runtime.Mode != "rpc" || ensured.Runtime.HostPID != 4321 || len(ft.ensured) != 0 || len(ft.launched) != 0 {
+	if !ensured.Created || ensured.Runtime.Mode != "headless" || ensured.Runtime.HostPID != 4321 || len(ft.ensured) != 0 || len(ft.launched) != 0 {
 		t.Fatalf("runtime = %+v tmux ensured=%d launched=%d", ensured, len(ft.ensured), len(ft.launched))
 	}
-	if strings.Join(launcher.spec.Args, " ") != strings.Join([]string{"agent", "exec", "--item", itemID, "--session", sessionID, "--runtime", ensured.Runtime.ID, "--mode", "rpc"}, " ") {
+	if strings.Join(launcher.spec.Args, " ") != strings.Join([]string{"agent", "exec", "--item", itemID, "--conversation", sessionID, "--runtime", ensured.Runtime.ID, "--mode", "headless"}, " ") {
 		t.Fatalf("launcher args = %+v", launcher.spec.Args)
 	}
-	if _, err := application.SwitchWorkItem(context.Background(), app.ResolveOptions{Selector: itemID}, false); err == nil || !strings.Contains(err.Error(), "currently owns the conversation in rpc mode") {
-		t.Fatalf("expected safe TUI handoff refusal, got %v", err)
+	if _, err := application.SwitchWorkItem(context.Background(), app.ResolveOptions{Selector: itemID}, false); err == nil || !strings.Contains(err.Error(), "currently owns the conversation in headless mode") {
+		t.Fatalf("expected safe headless-to-TUI handoff refusal, got %v", err)
 	}
 }
 
@@ -1751,9 +1770,9 @@ func TestEnsureAgentRuntimeForksConversationAfterSlotReassignment(t *testing.T) 
 	itemID := testutil.ID(t, 123)
 	sourceSessionID := testutil.ID(t, 124)
 	forkedSessionID := testutil.ID(t, 125)
-	application := app.New(st, newFakeGit(t))
+	application := newTestApp(st, newFakeGit(t))
 	application.Tmux = &fakeTmux{}
-	application.Pi = &fakePi{}
+	application.ConversationBackends["pi"] = &fakePi{}
 	application.Clock = fixedClock{testutil.Time()}
 	ids := []string{itemID, sourceSessionID, forkedSessionID}
 	application.NewID = func() (string, error) {
@@ -1771,7 +1790,7 @@ func TestEnsureAgentRuntimeForksConversationAfterSlotReassignment(t *testing.T) 
 	}
 	manifest := started.Workspace.Manifest
 	currentCheckout := *manifest.Checkout.Path
-	sourcePath := filepath.Join(st.ItemDir(itemID), filepath.FromSlash(manifest.RootPiSession.Path))
+	sourcePath := filepath.Join(st.ItemDir(itemID), filepath.FromSlash(manifest.PrimaryConversation.NativeLocator()))
 	oldCheckout := filepath.Join(filepath.Dir(currentCheckout), "slot-0004")
 	source := fmt.Sprintf("{\"type\":\"session\",\"version\":3,\"id\":\"11111111-1111-4111-8111-111111111111\",\"timestamp\":\"2026-08-03T07:48:31.948Z\",\"cwd\":%q}\n{\"type\":\"message\",\"id\":\"abcd1234\",\"parentId\":null,\"timestamp\":\"2026-08-03T07:49:00Z\",\"message\":{\"role\":\"user\",\"content\":\"hello\"}}\n", oldCheckout)
 	if err := os.WriteFile(sourcePath, []byte(source), 0o600); err != nil {
@@ -1781,11 +1800,11 @@ func TestEnsureAgentRuntimeForksConversationAfterSlotReassignment(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if ensured.Conversation.ID != forkedSessionID || ensured.Conversation.Path == manifest.RootPiSession.Path {
+	if ensured.Conversation.ID != forkedSessionID || ensured.Conversation.NativeLocator() == manifest.PrimaryConversation.NativeLocator() {
 		t.Fatalf("conversation = %+v", ensured.Conversation)
 	}
-	forkedPath := filepath.Join(st.ItemDir(itemID), filepath.FromSlash(ensured.Conversation.Path))
-	if cwd, err := application.Pi.SessionCWD(forkedPath); err != nil || cwd != currentCheckout {
+	forkedPath := filepath.Join(st.ItemDir(itemID), filepath.FromSlash(ensured.Conversation.NativeLocator()))
+	if cwd, err := application.ConversationBackends["pi"].ConversationCWD(context.Background(), forkedPath); err != nil || cwd != currentCheckout {
 		t.Fatalf("forked cwd=%q err=%v", cwd, err)
 	}
 	data, err := os.ReadFile(forkedPath)
@@ -1797,7 +1816,7 @@ func TestEnsureAgentRuntimeForksConversationAfterSlotReassignment(t *testing.T) 
 func TestEnsureAgentRuntimeRetriesEmptyPanePathAndRejectsDifferentCheckout(t *testing.T) {
 	st := store.New(t.TempDir())
 	itemID := testutil.ID(t, 121)
-	application := app.New(st, newFakeGit(t))
+	application := newTestApp(st, newFakeGit(t))
 	ft := &fakeTmux{}
 	application.Tmux = ft
 	application.Process = &fakeProcess{alive: map[int]bool{4321: true}}
@@ -1836,7 +1855,7 @@ func TestEnsureAgentRuntimeRetriesEmptyPanePathAndRejectsDifferentCheckout(t *te
 	}
 }
 
-func TestNewAgentWorkItemStartsDetachedRPCAndSubmitsDescription(t *testing.T) {
+func TestNewAgentWorkItemStartsDetachedHeadlessRuntimeAndSubmitsDescription(t *testing.T) {
 	root, err := os.MkdirTemp("/tmp", "wi-new-agent-")
 	if err != nil {
 		t.Fatal(err)
@@ -1850,7 +1869,7 @@ func TestNewAgentWorkItemStartsDetachedRPCAndSubmitsDescription(t *testing.T) {
 	fp := &fakeProcess{alive: map[int]bool{4321: true}}
 	var control *agent.ControlSocketServer
 	launcher := &fakeRuntimeLauncher{pid: 4321}
-	application := app.New(st, fg)
+	application := newTestApp(st, fg)
 	application.Process = fp
 	application.AgentRuntimeLauncher = launcher
 	application.AgentRuntimeSocketRoot = filepath.Join(root, "runtime")
@@ -1867,6 +1886,10 @@ func TestNewAgentWorkItemStartsDetachedRPCAndSubmitsDescription(t *testing.T) {
 		runtime, err := st.LoadAgentRuntime(itemID)
 		if err != nil || runtime == nil {
 			return fmt.Errorf("load prepared runtime: %v", err)
+		}
+		runtime.Capabilities = model.RuntimeCapabilities{Headless: true, Prompt: true, Steering: true, FollowUp: true, Cancel: true, Monitor: true}
+		if err := st.SaveAgentRuntime(context.Background(), itemID, *runtime); err != nil {
+			return err
 		}
 		socketPath := filepath.Join(application.AgentRuntimeSocketRoot, filepath.FromSlash(runtimepath.ControlSocket(itemID, runtime.ID)))
 		control, err = agent.ListenControlSocket(socketPath)
@@ -1887,11 +1910,11 @@ func TestNewAgentWorkItemStartsDetachedRPCAndSubmitsDescription(t *testing.T) {
 	}()
 
 	prompt := "Investigate the refresh race and add a regression test."
-	result, err := application.NewAgentWorkItem(context.Background(), app.NewWorkItemOptions{Title: "Refresh race", Description: prompt, CWD: t.TempDir()}, agent.ModeRPC, "planner")
+	result, err := application.NewAgentWorkItem(context.Background(), app.NewWorkItemOptions{Title: "Refresh race", Description: prompt, CWD: t.TempDir()}, agent.ModeHeadless, "planner")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Start.Transition.State != model.StateWorking || result.Start.Workspace.AgentRuntime == nil || result.Start.Workspace.AgentRuntime.Mode != string(agent.ModeRPC) || result.Start.Workspace.Terminal != nil {
+	if result.Start.Transition.State != model.StateWorking || result.Start.Workspace.AgentRuntime == nil || result.Start.Workspace.AgentRuntime.Mode != string(agent.ModeHeadless) || result.Start.Workspace.Terminal != nil {
 		t.Fatalf("start result = %+v", result.Start)
 	}
 	if !result.Control.Submitted || result.Control.Command.Message != prompt || result.Control.Command.Actor != "planner" {
@@ -1920,7 +1943,7 @@ func TestNewAgentWorkItemDefaultsToDetachedTUIWithoutAttaching(t *testing.T) {
 	fp := &fakeProcess{alive: map[int]bool{4321: true}}
 	ft := &fakeTmux{}
 	var control *agent.ControlSocketServer
-	application := app.New(st, newFakeGit(t))
+	application := newTestApp(st, newFakeGit(t))
 	application.Process = fp
 	application.Tmux = ft
 	application.AgentRuntimeSocketRoot = filepath.Join(root, "runtime")
@@ -1942,6 +1965,7 @@ func TestNewAgentWorkItemDefaultsToDetachedTUIWithoutAttaching(t *testing.T) {
 		runtime.HostProcessGroup = 4321
 		runtime.HostStartTime = 4321
 		runtime.State = model.AgentRuntimeRunning
+		runtime.Capabilities = model.RuntimeCapabilities{NativeTUI: true, Prompt: true, Steering: true, FollowUp: true, Cancel: true, Monitor: true}
 		if err := st.SaveAgentRuntime(context.Background(), itemID, *runtime); err != nil {
 			return err
 		}
@@ -1977,15 +2001,32 @@ func TestNewAgentWorkItemDefaultsToDetachedTUIWithoutAttaching(t *testing.T) {
 	}
 }
 
-func TestAgentExecHoldsLockAndRunsPiWithExplicitRootSessionPath(t *testing.T) {
+func TestAgentExecHoldsLockAndRunsPiWithExplicitRootConversationLocator(t *testing.T) {
+	t.Setenv("WI_DAEMON_SOCKET", "/private/daemon.sock")
+	t.Setenv("WI_DAEMON_PROTOCOL", "private")
+	t.Setenv("WI_BUILD_IDENTITY", "private")
 	st := store.New(t.TempDir())
 	itemID := testutil.ID(t, 21)
 	sessionID := testutil.ID(t, 22)
 	fg := newFakeGit(t)
 	fp := &fakePi{}
-	application := app.New(st, fg)
+	application := newTestApp(st, fg)
 	application.Tmux = &fakeTmux{}
-	application.Pi = fp
+	application.ConversationBackends["pi"] = fp
+	application.SelfPath = "/test/wi"
+	application.BundledDriverCommands["pi"] = app.BundledDriverCommand{Path: application.SelfPath, Args: []string{"internal-driver", "pi"}}
+	var driverEnv []string
+	application.RunAgentDriver = func(_ context.Context, _ string, _ []string, request driverprotocol.LaunchRequest, environment []string, onReady func(driverprotocol.Ready) error) error {
+		driverEnv = append([]string(nil), environment...)
+		fp.sessionPath = request.Conversation.Locator
+		fp.cwd = request.Runtime.CWD
+		fp.env = request.Environment
+		fp.mode = agent.Mode(request.Runtime.Mode)
+		fp.logPath = request.Runtime.LogPath
+		fp.controlPath = request.Runtime.ControlSocketPath
+		fp.eventPath = request.Runtime.EventSocketPath
+		return onReady(driverprotocol.Ready{ProtocolVersion: driverprotocol.Version, Capabilities: driverprotocol.Capabilities{NativeTUI: true, Prompt: true, Steering: true, FollowUp: true, Cancel: true, Monitor: true}})
+	}
 	application.AgentRuntimeStateRoot = filepath.Join(t.TempDir(), "state")
 	application.AgentRuntimeSocketRoot = filepath.Join(testutil.ShortTempDir(t), "runtime")
 	application.Clock = fixedClock{testutil.Time()}
@@ -2004,8 +2045,8 @@ func TestAgentExecHoldsLockAndRunsPiWithExplicitRootSessionPath(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res.Workspace.Manifest.RootPiSession == nil {
-		t.Fatal("root Pi session missing")
+	if res.Workspace.Manifest.PrimaryConversation == nil {
+		t.Fatal("primary conversation missing")
 	}
 	manifest, err := st.LoadManifest(itemID)
 	if err != nil {
@@ -2015,7 +2056,7 @@ func TestAgentExecHoldsLockAndRunsPiWithExplicitRootSessionPath(t *testing.T) {
 	if err != nil || runtime == nil {
 		t.Fatalf("agent runtime = %+v err=%v", runtime, err)
 	}
-	if err := application.AgentExec(context.Background(), itemID, res.Workspace.Manifest.RootPiSession.ID, runtime.ID, agent.ModeTUI); err != nil {
+	if err := application.AgentExec(context.Background(), itemID, res.Workspace.Manifest.PrimaryConversation.ID, runtime.ID, agent.ModeTUI); err != nil {
 		t.Fatal(err)
 	}
 	wantPath := filepath.Join(st.ItemDir(itemID), "sessions", "pi", sessionID+".jsonl")
@@ -2028,14 +2069,22 @@ func TestAgentExecHoldsLockAndRunsPiWithExplicitRootSessionPath(t *testing.T) {
 	if fp.env["WI_ID"] != itemID || fp.env["WI_DIR"] != st.ItemDir(itemID) {
 		t.Fatalf("env = %+v", fp.env)
 	}
-	if fp.env["PI_CODING_AGENT_SESSION_DIR"] != filepath.Join(st.ItemDir(itemID), "sessions", "pi") {
-		t.Fatalf("Pi session dir env = %q", fp.env["PI_CODING_AGENT_SESSION_DIR"])
+	if fp.env["WI_AGENT_CONVERSATION_DIR"] != filepath.Join(st.ItemDir(itemID), "sessions", "pi") {
+		t.Fatalf("conversation dir env = %q", fp.env["WI_AGENT_CONVERSATION_DIR"])
 	}
 	if fp.logPath != filepath.Join(application.AgentRuntimeStateRoot, filepath.FromSlash(runtimepath.DiagnosticLog(itemID, runtime.ID))) {
 		t.Fatalf("runtime log path = %q", fp.logPath)
 	}
 	if fp.controlPath != filepath.Join(application.AgentRuntimeSocketRoot, filepath.FromSlash(runtimepath.ControlSocket(itemID, runtime.ID))) {
 		t.Fatalf("control socket path = %q", fp.controlPath)
+	}
+	if fp.eventPath != filepath.Join(application.AgentRuntimeSocketRoot, filepath.FromSlash(runtimepath.EventSocket(itemID, runtime.ID))) {
+		t.Fatalf("event socket path = %q", fp.eventPath)
+	}
+	for _, entry := range driverEnv {
+		if strings.HasPrefix(entry, "WI_DAEMON_SOCKET=") || strings.HasPrefix(entry, "WI_DAEMON_PROTOCOL=") || strings.HasPrefix(entry, "WI_BUILD_IDENTITY=") {
+			t.Fatalf("driver received private daemon environment: %q", entry)
+		}
 	}
 }
 
@@ -2044,9 +2093,10 @@ func TestAgentExecRefusesLockedRootSession(t *testing.T) {
 	itemID := testutil.ID(t, 23)
 	sessionID := testutil.ID(t, 24)
 	fg := newFakeGit(t)
-	application := app.New(st, fg)
+	application := newTestApp(st, fg)
 	application.Tmux = &fakeTmux{}
-	application.Pi = &fakePi{}
+	application.ConversationBackends["pi"] = &fakePi{}
+	application.SelfPath = "/test/wi"
 	application.Clock = fixedClock{testutil.Time()}
 	ids := []string{itemID, sessionID}
 	idx := 0
@@ -2063,10 +2113,10 @@ func TestAgentExecRefusesLockedRootSession(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res.Workspace.Manifest.RootPiSession == nil {
-		t.Fatal("root Pi session missing")
+	if res.Workspace.Manifest.PrimaryConversation == nil {
+		t.Fatal("primary conversation missing")
 	}
-	lockFile, err := os.OpenFile(filepath.Join(st.ItemDir(itemID), "locks", "pi-"+res.Workspace.Manifest.RootPiSession.ID+".lock"), os.O_CREATE|os.O_RDWR, 0o600)
+	lockFile, err := os.OpenFile(filepath.Join(st.ItemDir(itemID), "locks", "pi-"+res.Workspace.Manifest.PrimaryConversation.ID+".lock"), os.O_CREATE|os.O_RDWR, 0o600)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2079,7 +2129,7 @@ func TestAgentExecRefusesLockedRootSession(t *testing.T) {
 	if err != nil || runtime == nil {
 		t.Fatalf("agent runtime = %+v err=%v", runtime, err)
 	}
-	if err := application.AgentExec(context.Background(), itemID, res.Workspace.Manifest.RootPiSession.ID, runtime.ID, agent.ModeTUI); err == nil {
+	if err := application.AgentExec(context.Background(), itemID, res.Workspace.Manifest.PrimaryConversation.ID, runtime.ID, agent.ModeTUI); err == nil {
 		t.Fatal("expected locked session exec to fail")
 	}
 }
@@ -2091,7 +2141,7 @@ func TestArchiveRepositoryHomeReleasesClaimWithoutTouchingCheckout(t *testing.T)
 	fg.info.Repository.RootAtCreation = root
 	fg.info.Repository.GitCommonDir = filepath.Join(root, ".git")
 	fg.worktrees[root] = "main"
-	application := app.New(st, fg)
+	application := newTestApp(st, fg)
 	application.Tmux = &fakeTmux{}
 	application.Clock = fixedClock{testutil.Time()}
 	ids := []string{testutil.ID(t, 101), testutil.ID(t, 102)}
@@ -2121,7 +2171,7 @@ func TestNewWorkItemUsesStableReadableBranch(t *testing.T) {
 	st := store.New(t.TempDir())
 	id := testutil.ID(t, 8)
 	fg := newFakeGit(t)
-	application := app.New(st, fg)
+	application := newTestApp(st, fg)
 	application.Clock = fixedClock{testutil.Time()}
 	application.NewID = func() (string, error) { return id, nil }
 	res, err := application.NewWorkItem(context.Background(), app.NewWorkItemOptions{Title: "Fix Race", CWD: t.TempDir()})
@@ -2138,7 +2188,7 @@ func TestStartWorkItemReturnsTmuxCreationFailure(t *testing.T) {
 	st := store.New(t.TempDir())
 	id := testutil.ID(t, 15)
 	fg := newFakeGit(t)
-	application := app.New(st, fg)
+	application := newTestApp(st, fg)
 	application.Tmux = &fakeTmux{ensureErr: errors.New("tmux failed")}
 	application.Clock = fixedClock{testutil.Time()}
 	application.NewID = func() (string, error) { return id, nil }
@@ -2168,7 +2218,7 @@ func TestCheckoutRemoveDoesNotArchiveAndCreateReusesBranch(t *testing.T) {
 	st := store.New(t.TempDir())
 	id := testutil.ID(t, 10)
 	fg := newFakeGit(t)
-	application := app.New(st, fg)
+	application := newTestApp(st, fg)
 	application.Clock = fixedClock{testutil.Time()}
 	application.NewID = func() (string, error) { return id, nil }
 	newRes, err := application.NewWorkItem(context.Background(), app.NewWorkItemOptions{Title: "Checkout", CWD: t.TempDir()})
@@ -2209,7 +2259,7 @@ func TestCheckoutRemoveRefusesDirtyWithoutForce(t *testing.T) {
 	st := store.New(t.TempDir())
 	id := testutil.ID(t, 11)
 	fg := newFakeGit(t)
-	application := app.New(st, fg)
+	application := newTestApp(st, fg)
 	application.Clock = fixedClock{testutil.Time()}
 	application.NewID = func() (string, error) { return id, nil }
 	if _, err := application.NewWorkItem(context.Background(), app.NewWorkItemOptions{Title: "Dirty", CWD: t.TempDir()}); err != nil {
@@ -2232,7 +2282,7 @@ func TestResolveItemFromTmuxEnvironment(t *testing.T) {
 	id := testutil.ID(t, 12)
 	fg := newFakeGit(t)
 	ft := &fakeTmux{current: "wi-session", env: map[string]string{"WI_ID": id}}
-	application := app.New(st, fg)
+	application := newTestApp(st, fg)
 	application.Tmux = ft
 	application.Clock = fixedClock{testutil.Time()}
 	application.NewID = func() (string, error) { return id, nil }
@@ -2248,11 +2298,11 @@ func TestResolveItemFromTmuxEnvironment(t *testing.T) {
 	}
 }
 
-func repoInfo(t *testing.T) gitpkg.RepositoryInfo {
+func repoInfo(t *testing.T) model.RepositoryInfo {
 	t.Helper()
 	commit := strings.Repeat("a", 40)
 	root := t.TempDir()
-	return gitpkg.RepositoryInfo{
+	return model.RepositoryInfo{
 		Repository: model.Repository{
 			RootAtCreation:    root,
 			GitCommonDir:      root + "/.git",

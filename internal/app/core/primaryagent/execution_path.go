@@ -8,7 +8,7 @@ import (
 )
 
 // ExecutionCWD keeps a runtime anchored to the item's current checkout.
-func ExecutionCWD(m model.Manifest, _ model.PiSession) string {
+func ExecutionCWD(m model.Manifest, _ model.Conversation) string {
 	if m.Checkout.Present() && m.Checkout.Path != nil {
 		if path := strings.TrimSpace(*m.Checkout.Path); path != "" {
 			return path

@@ -87,6 +87,23 @@ func TestRelocateRepositoryPreservesCreationProvenance(t *testing.T) {
 	}
 }
 
+func TestForceReleaseMissingRepositoryHomeRelinquishesClaim(t *testing.T) {
+	missing := filepath.Join(t.TempDir(), "moved-repository")
+	manifest := model.Manifest{ID: "item-1", Checkout: model.Checkout{Kind: model.WorkspaceKindRepositoryHome, Path: &missing, Branch: "main"}}
+	resolve := func(context.Context, contract.ResolveOptions) (model.Manifest, error) { return manifest, nil }
+	st := &recordingStore{}
+	result, err := New(st, fakeGit{}, nil, nil, resolve, nil, time.Now).Release(context.Background(), contract.ResolveOptions{}, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Changed || result.Manifest.Checkout.Present() || st.saved.Checkout.Present() {
+		t.Fatalf("result=%+v saved=%+v", result, st.saved)
+	}
+	if len(result.Warnings) != 1 || !strings.Contains(result.Warnings[0], "missing repository-home checkout") {
+		t.Fatalf("warnings=%v", result.Warnings)
+	}
+}
+
 func TestRelocateRepositoryRejectsDifferentOrigin(t *testing.T) {
 	manifest := model.Manifest{ID: "item-1", Repository: model.Repository{RootAtCreation: "/old/repo", RemoteURL: "git@example.com:acme/repo.git", CreatedFromCommit: "abc"}, Checkout: model.Checkout{Kind: model.WorkspaceKindManagedSlot, Branch: "wi/item-1"}}
 	resolve := func(context.Context, contract.ResolveOptions) (model.Manifest, error) { return manifest, nil }

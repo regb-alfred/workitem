@@ -38,20 +38,20 @@ type Tmux interface {
 	PaneInfo(context.Context, string) (model.TerminalPaneInfo, error)
 }
 type Resolver func(context.Context, contract.ResolveOptions) (model.Manifest, error)
-type PiSessionObserver func(model.Manifest, time.Time) (PiSessionStatus, []string)
+type ConversationObserver func(context.Context, model.Manifest, time.Time) (ConversationStatus, []string)
 
 type Service struct {
-	store             Store
-	process           Process
-	git               Git
-	tmux              Tmux
-	resolve           Resolver
-	newID             func() (string, error)
-	now               func() time.Time
-	busy              func(context.Context, string) (bool, error)
-	PiSessionObserver PiSessionObserver
-	RuntimeStateRoot  string
-	RuntimeSocketRoot string
+	store                Store
+	process              Process
+	git                  Git
+	tmux                 Tmux
+	resolve              Resolver
+	newID                func() (string, error)
+	now                  func() time.Time
+	busy                 func(context.Context, string) (bool, error)
+	ConversationObserver ConversationObserver
+	RuntimeStateRoot     string
+	RuntimeSocketRoot    string
 }
 
 func New(st Store, p Process, git Git, tmux Tmux, r Resolver, newID func() (string, error), now func() time.Time, busy func(context.Context, string) (bool, error)) *Service {
@@ -115,11 +115,9 @@ func (s *Service) RuntimeStatus(ctx context.Context, opts contract.ResolveOption
 	if r == nil {
 		return res, nil
 	}
-	mode, e := agent.ParseMode(r.Mode)
-	if e != nil {
-		res.Warnings = append(res.Warnings, e.Error())
-	} else {
-		res.Capabilities = agent.CapabilitiesForMode(mode)
+	if _, err := agent.ParseMode(r.Mode); err != nil {
+		res.Warnings = append(res.Warnings, err.Error())
 	}
+	res.Capabilities = r.Capabilities
 	return res, nil
 }

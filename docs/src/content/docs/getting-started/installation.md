@@ -15,7 +15,7 @@ Install these programs before building `wi`:
 - [tmux](https://github.com/tmux/tmux) for interactive TUI mode
 - [fzf](https://github.com/junegunn/fzf) for the optional `wi switch` picker
 
-Headless RPC agents do not require tmux or fzf. Pi must be installed and configured for the model provider you intend to use.
+Headless agents do not require tmux or fzf. Pi must be installed and configured for the model provider you intend to use.
 
 Check the prerequisites available for your workflow:
 

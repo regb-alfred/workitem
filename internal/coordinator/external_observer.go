@@ -40,7 +40,7 @@ type ProjectedProcess struct {
 	TmuxPanePID     int    `json:"tmux_pane_pid,omitempty"`
 	TmuxPaneCommand string `json:"tmux_pane_command,omitempty"`
 	TmuxPanePath    string `json:"tmux_pane_path,omitempty"`
-	PiPID           int    `json:"pi_pid,omitempty"`
+	BackendPID      int    `json:"backend_pid,omitempty"`
 	DiscoverySource string `json:"discovery_source,omitempty"`
 }
 
@@ -115,7 +115,7 @@ func (o *ExternalObserver) reconcile(ctx context.Context, includeWorktree bool) 
 	return o.database.UpdateProjections(updates)
 }
 
-// ReconcileActionability folds the latest native Pi checkpoint and live runtime
+// ReconcileActionability folds the latest native conversation checkpoint and live runtime
 // activity into existing observations without re-running process, tmux, or Git
 // inspection. It is used as the picker pre-snapshot barrier.
 func (o *ExternalObserver) ReconcileActionability(ctx context.Context) error {
@@ -158,10 +158,10 @@ func (o *ExternalObserver) applyActionability(itemID string, observation *AgentO
 		observation.Runtime = nil
 	}
 
-	var pi PiSessionIndex
-	piFound, err := o.database.ReadProjection(PiSessionProjection, itemID, &pi)
+	var conversation ConversationIndex
+	conversationFound, err := o.database.ReadProjection(ConversationProjection, itemID, &conversation)
 	if err != nil {
-		return fmt.Errorf("read Pi projection: %w", err)
+		return fmt.Errorf("read conversation projection: %w", err)
 	}
 	activity := AttentionActivity{WorkItemID: itemID}
 	if _, err := o.database.ReadProjection(AttentionActivityProjection, itemID, &activity); err != nil {
@@ -171,10 +171,10 @@ func (o *ExternalObserver) applyActionability(itemID string, observation *AgentO
 	activity.LastCompletedAt = laterTime(activity.LastCompletedAt, observation.Activity.LastCompletedAt)
 	activity.LastDeferredAt = laterTime(activity.LastDeferredAt, observation.Activity.LastDeferredAt)
 	observation.Activity = activity
-	if piFound {
-		observation.TurnState = pi.InferredTurnState
-		if pi.LastTurnActivity != nil && !pi.LastTurnActivity.Timestamp.IsZero() {
-			at := pi.LastTurnActivity.Timestamp.UTC()
+	if conversationFound {
+		observation.TurnState = conversation.InferredTurnState
+		if conversation.LastTurnActivity != nil && !conversation.LastTurnActivity.Timestamp.IsZero() {
+			at := conversation.LastTurnActivity.Timestamp.UTC()
 			observation.LastActivityAt = &at
 		}
 	}
@@ -188,7 +188,7 @@ func (o *ExternalObserver) applyActionability(itemID string, observation *AgentO
 		observation.Activity.LastCompletedAt = laterTime(observation.Activity.LastCompletedAt, live.LastCompletedAt)
 	}
 	liveOwnerCurrent := liveFound && ownerFound && live.RuntimeID == owner.ID
-	liveCurrent := liveOwnerCurrent && live.Source == "daemon.runtime.live" && live.LastEventAt != nil && (!piFound || pi.LastTurnActivity == nil || !live.LastEventAt.Before(pi.LastTurnActivity.Timestamp))
+	liveCurrent := liveOwnerCurrent && live.Source == "daemon.runtime.live" && live.LastEventAt != nil && (!conversationFound || conversation.LastTurnActivity == nil || !live.LastEventAt.Before(conversation.LastTurnActivity.Timestamp))
 	switch {
 	case liveCurrent && live.RuntimeState == model.AgentRuntimeProblem:
 		observation.Status = "problem"
@@ -203,21 +203,21 @@ func (o *ExternalObserver) applyActionability(itemID string, observation *AgentO
 		observation.Reason = "live runtime event reports settled work"
 		observation.TurnState = "idle"
 		observation.LastActivityAt = live.LastEventAt
-	case !piFound:
+	case !conversationFound:
 		observation.Status = "problem"
-		observation.Reason = "daemon has not indexed the Pi session"
-	case pi.InferredTurnState == "failed":
+		observation.Reason = "daemon has not indexed the conversation"
+	case conversation.InferredTurnState == "failed":
 		observation.Status = "problem"
 		observation.Reason = "latest terminal assistant message failed"
-	case pi.InferredTurnState == "idle":
+	case conversation.InferredTurnState == "idle":
 		observation.Status = "idle"
 		observation.Reason = "latest assistant answer is terminal"
 	case observation.ProcessOnline:
 		observation.Status = "busy"
-		observation.Reason = "latest Pi activity is incomplete and runtime ownership is online"
+		observation.Reason = "latest conversation activity is incomplete and runtime ownership is online"
 	default:
 		observation.Status = "problem"
-		observation.Reason = "latest Pi activity is incomplete and runtime ownership is offline"
+		observation.Reason = "latest conversation activity is incomplete and runtime ownership is offline"
 	}
 	return nil
 }
@@ -285,9 +285,9 @@ func (o *ExternalObserver) observe(ctx context.Context, manifest model.Manifest,
 			observation.Process.TmuxPaneIndex = pane.PaneIndex
 			observation.Process.TmuxPanePID = pane.PanePID
 			observation.Process.TmuxPaneCommand = pane.Command
-			if piProcess, found, err := o.process.FindDescendant(pane.PanePID, []string{"pi", "pi-coding-agent", "@earendil-works/pi-coding-agent"}); err == nil && found {
+			if backend, found, err := o.process.FindDescendant(pane.PanePID, []string{"internal-driver", "wi-agent-"}); err == nil && found {
 				observation.ProcessOnline = true
-				observation.Process.PiPID = piProcess.PID
+				observation.Process.BackendPID = backend.PID
 				observation.Process.DiscoverySource = "tmux"
 			}
 			break

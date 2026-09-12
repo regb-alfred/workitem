@@ -42,7 +42,7 @@ wi daemon status
 wi daemon doctor
 ```
 
-`doctor` checks connectivity, database metadata, and Pi session indexing. Run the daemon in the foreground when startup itself is failing:
+`doctor` checks connectivity, database metadata, and native conversation indexing. Run the daemon in the foreground when startup itself is failing:
 
 ```bash
 wi daemon serve

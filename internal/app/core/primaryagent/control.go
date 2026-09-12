@@ -56,6 +56,9 @@ func (s *Service) Control(ctx context.Context, opts ControlOptions) (ControlResu
 	default:
 		return ControlResult{}, fmt.Errorf("unsupported agent control command %q", commandType)
 	}
+	if !supportsControl(runtime.Capabilities, commandType) {
+		return ControlResult{}, fmt.Errorf("agent driver does not support %s control", commandType)
+	}
 	commandID, err := s.newID()
 	if err != nil {
 		return ControlResult{}, err
@@ -69,6 +72,23 @@ func (s *Service) Control(ctx context.Context, opts ControlOptions) (ControlResu
 		return ControlResult{}, err
 	}
 	return ControlResult{WorkItemID: m.ID, Runtime: *runtime, Command: command, Submitted: true}, nil
+}
+
+func supportsControl(capabilities model.RuntimeCapabilities, commandType string) bool {
+	switch commandType {
+	case agent.CommandPrompt:
+		return capabilities.Prompt
+	case agent.CommandSteer:
+		return capabilities.Steering
+	case agent.CommandFollowUp:
+		return capabilities.FollowUp
+	case agent.CommandAbort:
+		return capabilities.Cancel
+	case agent.CommandShutdown:
+		return true
+	default:
+		return false
+	}
 }
 
 func (s *Service) SubmitControl(ctx context.Context, itemID string, runtime model.AgentRuntime, command agent.ControlCommand) error {
@@ -102,16 +122,32 @@ func (s *Service) ControlSocketPath(itemID string, runtime *model.AgentRuntime) 
 		namespace = s.store.ItemDir(itemID)
 		socketPath = filepath.Join(namespace, "agent", "control.sock")
 	}
-	return portableControlSocketPath(goruntime.GOOS, socketPath, namespace, relative)
+	return portableRuntimeSocketPath(goruntime.GOOS, socketPath, namespace, relative)
 }
 
-func portableControlSocketPath(goos, candidate, namespace, relative string) string {
+func (s *Service) EventSocketPath(itemID string, runtime *model.AgentRuntime) string {
+	if runtime == nil || strings.TrimSpace(runtime.ID) == "" {
+		return ""
+	}
+	relative := runtimepath.EventSocket(itemID, runtime.ID)
+	namespace := strings.TrimSpace(s.RuntimeSocketRoot)
+	var socketPath string
+	if namespace != "" {
+		socketPath = filepath.Join(namespace, filepath.FromSlash(relative))
+	} else {
+		namespace = s.store.ItemDir(itemID)
+		socketPath = filepath.Join(namespace, "agent", "events.sock")
+	}
+	return portableRuntimeSocketPath(goruntime.GOOS, socketPath, namespace, relative)
+}
+
+func portableRuntimeSocketPath(goos, candidate, namespace, relative string) string {
 	if goos != "darwin" || len(candidate) < 100 {
 		return candidate
 	}
 	digest := sha256.Sum256([]byte(filepath.Clean(namespace)))
 	rootKey := fmt.Sprintf("%x", digest[:6])
-	return filepath.Join("/tmp", fmt.Sprintf("wi-%d", os.Getuid()), "control", rootKey, filepath.FromSlash(relative))
+	return filepath.Join("/tmp", fmt.Sprintf("wi-%d", os.Getuid()), "runtime", rootKey, filepath.FromSlash(relative))
 }
 
 func (s *Service) LogPath(itemID string, runtime *model.AgentRuntime) string {

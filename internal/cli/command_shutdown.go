@@ -150,7 +150,7 @@ func shutdownWorkerEnvironment(entries []string) []string {
 	filtered := make([]string, 0, len(entries))
 	for _, entry := range entries {
 		key, _, ok := strings.Cut(entry, "=")
-		if !ok || scrub[key] || strings.HasPrefix(key, "WI_AGENT_") || strings.HasPrefix(key, "PI_CODING_AGENT_") {
+		if !ok || scrub[key] || strings.HasPrefix(key, "WI_AGENT_") {
 			continue
 		}
 		filtered = append(filtered, entry)
@@ -161,7 +161,7 @@ func shutdownWorkerEnvironment(entries []string) []string {
 func shutdownOperationEnvironment(env map[string]string) map[string]string {
 	filtered := make(map[string]string, len(env))
 	for key, value := range env {
-		if key == "TMUX" || key == "TMUX_PANE" || key == "WI_ID" || key == "WI_DIR" || key == "WI_WORKTREE" || key == "WI_REPOSITORY" || key == "WI_TMUX_CLIENT" || strings.HasPrefix(key, "WI_AGENT_") || strings.HasPrefix(key, "PI_CODING_AGENT_") {
+		if key == "TMUX" || key == "TMUX_PANE" || key == "WI_ID" || key == "WI_DIR" || key == "WI_WORKTREE" || key == "WI_REPOSITORY" || key == "WI_TMUX_CLIENT" || strings.HasPrefix(key, "WI_AGENT_") {
 			continue
 		}
 		filtered[key] = value

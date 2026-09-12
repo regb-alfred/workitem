@@ -20,8 +20,8 @@ func (a *App) RecordAttentionDefer(ctx context.Context, opts ResolveOptions) (De
 		}
 		return DeferResult{}, err
 	}
-	piSession, warnings := a.inspectPiSession(res.Manifest, a.now())
-	activity, activityWarnings := a.attentionActivity(res.WorkItemID, AgentStatusResult{PiSession: piSession})
+	conversation, warnings := a.inspectConversation(ctx, res.Manifest, a.now())
+	activity, activityWarnings := a.attentionActivity(res.WorkItemID, AgentStatusResult{Conversation: conversation})
 	warnings = append(warnings, activityWarnings...)
 	warnings = append(warnings, res.Warnings...)
 	activity.LastDeferredAt = timePointer(res.DeferredAt)

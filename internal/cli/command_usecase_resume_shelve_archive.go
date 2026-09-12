@@ -13,7 +13,7 @@ func runResume(ctx context.Context, args []string, cfg Config, jsonOut bool) err
 	fs := newFlagSet("resume", cfg.Stderr)
 	var item, agentMode string
 	fs.StringVar(&item, "item", "", "work item selector (default: current item)")
-	fs.StringVar(&agentMode, "agent-mode", "tui", "agent runtime mode: tui or rpc")
+	fs.StringVar(&agentMode, "agent-mode", "tui", "agent runtime mode: tui or headless")
 	if err := fs.Parse(args); err != nil {
 		return usageErr{err}
 	}

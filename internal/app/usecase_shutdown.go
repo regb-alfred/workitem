@@ -233,8 +233,10 @@ func (a *App) provablyOwnedTmuxSession(ctx context.Context, session, expectedIte
 	if strings.TrimSpace(env["WI_DIR"]) == "" || filepath.Clean(env["WI_DIR"]) != itemDir {
 		return false, nil
 	}
-	sessionDir := filepath.Join(itemDir, "sessions", "pi")
-	if strings.TrimSpace(env["PI_CODING_AGENT_SESSION_DIR"]) == "" || filepath.Clean(env["PI_CODING_AGENT_SESSION_DIR"]) != sessionDir {
+	conversationDir := strings.TrimSpace(env["WI_AGENT_CONVERSATION_DIR"])
+	conversationsRoot := filepath.Join(itemDir, "sessions")
+	conversationMatches := conversationDir != "" && (filepath.Clean(conversationDir) == conversationsRoot || strings.HasPrefix(filepath.Clean(conversationDir), conversationsRoot+string(filepath.Separator)))
+	if !conversationMatches {
 		return false, nil
 	}
 	return true, nil

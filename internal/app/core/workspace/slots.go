@@ -212,11 +212,17 @@ func (s *Service) ensureCheckoutBranch(ctx context.Context, m model.Manifest) er
 	return nil
 }
 
-func (s *Service) releaseCheckout(ctx context.Context, m model.Manifest, _ bool) (CheckoutRelease, error) {
+func (s *Service) releaseCheckout(ctx context.Context, m model.Manifest, force bool) (CheckoutRelease, error) {
 	if !m.Checkout.Present() || m.Checkout.Path == nil || *m.Checkout.Path == "" {
 		return CheckoutRelease{Manifest: m}, nil
 	}
 	if m.Checkout.Kind == model.WorkspaceKindRepositoryHome {
+		if force {
+			if _, err := os.Stat(*m.Checkout.Path); os.IsNotExist(err) {
+				m.Checkout.Path = nil
+				return CheckoutRelease{Manifest: m, Slot: false, Warnings: []string{"missing repository-home checkout required no filesystem changes; released only its logical work-item claim"}}, nil
+			}
+		}
 		if err := s.ensureCheckoutBranch(ctx, m); err != nil {
 			return CheckoutRelease{}, err
 		}

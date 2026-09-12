@@ -279,7 +279,10 @@ func (s *Service) spec(m model.Manifest, environment map[string]string) tmuxpkg.
 	// an approved .envrc cannot redirect the session to another item.
 	env["WI_ID"] = m.ID
 	env["WI_DIR"] = s.store.ItemDir(m.ID)
-	env["PI_CODING_AGENT_SESSION_DIR"] = filepath.Join(s.store.ItemDir(m.ID), "sessions", "pi")
+	env["WI_AGENT_CONVERSATION_DIR"] = filepath.Join(s.store.ItemDir(m.ID), "sessions")
+	if m.PrimaryConversation != nil {
+		env["WI_AGENT_CONVERSATION_DIR"] = filepath.Dir(filepath.Join(s.store.ItemDir(m.ID), filepath.FromSlash(m.PrimaryConversation.NativeLocator())))
+	}
 	repositoryRoot := m.Repository.OperationalRoot()
 	if repositoryRoot != "" {
 		env["WI_REPOSITORY"] = repositoryRoot

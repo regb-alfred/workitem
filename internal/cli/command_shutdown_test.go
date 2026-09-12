@@ -23,11 +23,10 @@ func TestShutdownWorkerEnvironmentRemovesRuntimeOwnership(t *testing.T) {
 		"TMUX_PANE=%1",
 		"WI_ID=item",
 		"WI_AGENT_RUNTIME_ID=runtime",
-		"PI_CODING_AGENT_SESSION_DIR=/tmp/session",
 		"WI_LIST_LABELS=team",
 	})
 	joined := strings.Join(filtered, "\n")
-	for _, forbidden := range []string{"WI_ID=", "WI_AGENT_RUNTIME_ID=", "PI_CODING_AGENT_SESSION_DIR="} {
+	for _, forbidden := range []string{"WI_ID=", "WI_AGENT_RUNTIME_ID="} {
 		if strings.Contains(joined, forbidden) {
 			t.Fatalf("filtered environment retained %q: %q", forbidden, joined)
 		}

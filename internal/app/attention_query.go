@@ -16,7 +16,7 @@ func (a *App) EnrichWorkList(ctx context.Context, result *WorkListResult, resolv
 				return viewapp.Observation{}, err
 			}
 			activity, activityWarnings := a.attentionActivity(itemID, status)
-			return viewapp.Observation{Status: status.Status, Reason: status.Reason, ProcessOnline: status.Process.Online, TurnState: status.PiSession.InferredTurnState, LastActivityAgeSeconds: status.PiSession.LastActivityAgeSeconds, Worktree: viewWorktreeStatus(status.Worktree), Activity: activity, ActivityWarnings: activityWarnings, Warnings: status.Warnings}, nil
+			return viewapp.Observation{Status: status.Status, Reason: status.Reason, ProcessOnline: status.Process.Online, TurnState: status.Conversation.InferredTurnState, LastActivityAgeSeconds: status.Conversation.LastActivityAgeSeconds, Worktree: viewWorktreeStatus(status.Worktree), Activity: activity, ActivityWarnings: activityWarnings, Warnings: status.Warnings}, nil
 		}
 	}
 	return a.viewService().Enrich(ctx, result, observe, func(_ string, observation viewapp.Observation) (viewapp.Activity, []string) {
@@ -40,25 +40,25 @@ func (a *App) WorkItemActivity(ctx context.Context, opts ResolveOptions) (WorkIt
 	if err != nil {
 		return WorkItemActivityResult{}, err
 	}
-	session, warnings := a.inspectPiSession(m, a.now())
-	activity, extra := a.attentionActivity(m.ID, AgentStatusResult{PiSession: session})
+	session, warnings := a.inspectConversation(ctx, m, a.now())
+	activity, extra := a.attentionActivity(m.ID, AgentStatusResult{Conversation: session})
 	return WorkItemActivityResult{WorkItemID: m.ID, Activity: activity, Warnings: append(warnings, extra...)}, nil
 }
 
 func (a *App) attentionActivity(itemID string, status AgentStatusResult) (AttentionActivity, []string) {
 	var requested, completed *time.Time
-	if status.PiSession.LastUserPrompt != nil && !status.PiSession.LastUserPrompt.Timestamp.IsZero() {
-		requested = timePointer(status.PiSession.LastUserPrompt.Timestamp)
+	if status.Conversation.LastUserPrompt != nil && !status.Conversation.LastUserPrompt.Timestamp.IsZero() {
+		requested = timePointer(status.Conversation.LastUserPrompt.Timestamp)
 	}
-	if status.PiSession.LastTerminalAssistant != nil && !status.PiSession.LastTerminalAssistant.Timestamp.IsZero() {
-		completed = timePointer(status.PiSession.LastTerminalAssistant.Timestamp)
+	if status.Conversation.LastTerminalAssistant != nil && !status.Conversation.LastTerminalAssistant.Timestamp.IsZero() {
+		completed = timePointer(status.Conversation.LastTerminalAssistant.Timestamp)
 	}
 	activity, warnings := a.attentionService().FoldActivity(itemID, requested, completed)
 	return AttentionActivity(activity), warnings
 }
 
 func (a *App) workAgentStatus(status AgentStatusResult) WorkAgentStatus {
-	observation := viewapp.Observation{Status: status.Status, Reason: status.Reason, ProcessOnline: status.Process.Online, TurnState: status.PiSession.InferredTurnState, LastActivityAgeSeconds: status.PiSession.LastActivityAgeSeconds}
+	observation := viewapp.Observation{Status: status.Status, Reason: status.Reason, ProcessOnline: status.Process.Online, TurnState: status.Conversation.InferredTurnState, LastActivityAgeSeconds: status.Conversation.LastActivityAgeSeconds}
 	marker := viewapp.Markers{Busy: a.AgentStatusConfig.Markers.Busy, Idle: a.AgentStatusConfig.Markers.Idle, Problem: a.AgentStatusConfig.Markers.Problem}
 	return viewapp.ProjectAgent(observation, marker)
 }

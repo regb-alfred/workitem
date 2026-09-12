@@ -135,23 +135,23 @@ func printAgentStatus(w io.Writer, res app.AgentStatusResult) {
 		}
 		fmt.Fprintln(w)
 	}
-	if res.Process.PiPID != 0 {
-		fmt.Fprintf(w, "pi pid: %d\n", res.Process.PiPID)
+	if res.Process.BackendPID != 0 {
+		fmt.Fprintf(w, "pi pid: %d\n", res.Process.BackendPID)
 	}
 	fmt.Fprintf(w, "process online: %v\n", res.Process.Online)
-	if res.PiSession.Path != "" {
-		fmt.Fprintf(w, "pi session: %s\n", res.PiSession.Path)
+	if res.Conversation.Path != "" {
+		fmt.Fprintf(w, "conversation: %s\n", res.Conversation.Path)
 	}
-	if res.PiSession.InferredTurnState != "" {
-		fmt.Fprintf(w, "turn: %s\n", res.PiSession.InferredTurnState)
+	if res.Conversation.InferredTurnState != "" {
+		fmt.Fprintf(w, "turn: %s\n", res.Conversation.InferredTurnState)
 	}
-	if res.PiSession.LastEvent != nil {
-		fmt.Fprintf(w, "last event: %s", res.PiSession.LastEvent.Type)
-		if res.PiSession.LastEvent.Role != "" {
-			fmt.Fprintf(w, " role=%s", res.PiSession.LastEvent.Role)
+	if res.Conversation.LastEvent != nil {
+		fmt.Fprintf(w, "last event: %s", res.Conversation.LastEvent.Type)
+		if res.Conversation.LastEvent.Role != "" {
+			fmt.Fprintf(w, " role=%s", res.Conversation.LastEvent.Role)
 		}
-		if !res.PiSession.LastEvent.Timestamp.IsZero() {
-			fmt.Fprintf(w, " at %s", res.PiSession.LastEvent.Timestamp.Format(timeFormatHuman))
+		if !res.Conversation.LastEvent.Timestamp.IsZero() {
+			fmt.Fprintf(w, " at %s", res.Conversation.LastEvent.Timestamp.Format(timeFormatHuman))
 		}
 		fmt.Fprintln(w)
 	}

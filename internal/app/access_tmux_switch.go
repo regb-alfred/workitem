@@ -31,7 +31,7 @@ func (a *App) SwitchWorkItem(ctx context.Context, opts ResolveOptions, attach bo
 		if ownership.Mode != "tui" {
 			return CompositionResult{}, fmt.Errorf("agent runtime %s currently owns the conversation in %s mode; run `wi agent runtime stop --item %s`, wait for it to exit, then switch to the native TUI", existing.ID, existing.Mode, m.ID)
 		}
-		if m.RootPiSession == nil {
+		if m.PrimaryConversation == nil {
 			return CompositionResult{}, fmt.Errorf("active agent runtime %s has no durable root conversation", existing.ID)
 		}
 		if a.tmuxTerminalExists(ctx, m) {
@@ -39,7 +39,7 @@ func (a *App) SwitchWorkItem(ctx context.Context, opts ResolveOptions, attach bo
 			if err != nil {
 				return CompositionResult{}, err
 			}
-			return CompositionResult{WorkItemID: m.ID, Checkout: m.Checkout, Terminal: &terminal, PiSession: m.RootPiSession, AgentRuntime: existing, Manifest: m, Warnings: append([]string(nil), terminal.Warnings...)}, nil
+			return CompositionResult{WorkItemID: m.ID, Checkout: m.Checkout, Terminal: &terminal, Conversation: m.PrimaryConversation, AgentRuntime: existing, Manifest: m, Warnings: append([]string(nil), terminal.Warnings...)}, nil
 		}
 		// The runtime process is verified alive but its tmux terminal is gone,
 		// typically because the tmux server restarted. The process is
@@ -64,7 +64,7 @@ func (a *App) SwitchWorkItem(ctx context.Context, opts ResolveOptions, attach bo
 	}
 	workspace := CompositionResult{
 		WorkItemID: m.ID, Checkout: manifest.Checkout, Terminal: runtime.Terminal,
-		PiSession: manifest.RootPiSession, PiLaunched: runtime.Created,
+		Conversation: manifest.PrimaryConversation, AgentLaunched: runtime.Created,
 		AgentRuntime: &runtime.Runtime, Manifest: manifest, Warnings: append(append([]string(nil), runtime.Warnings...), recycleWarnings...),
 	}
 	if attach {
@@ -88,7 +88,7 @@ func (a *App) tmuxTerminalExists(ctx context.Context, m model.Manifest) bool {
 
 // recycleOrphanedTUIRuntime force-stops a verified TUI runtime whose tmux
 // terminal has disappeared and waits for it to exit. The conversation is
-// durable, so a later EnsureAgentRuntime resumes the same root Pi session in a
+// durable, so a later EnsureAgentRuntime resumes the same primary conversation in a
 // fresh terminal.
 func (a *App) recycleOrphanedTUIRuntime(ctx context.Context, m model.Manifest, runtime *model.AgentRuntime) ([]string, error) {
 	stopped, err := a.StopAgentRuntime(ctx, ResolveOptions{Selector: m.ID}, true)

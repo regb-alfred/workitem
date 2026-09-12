@@ -11,13 +11,14 @@ Follow the [installation guide](getting-started/installation/) and then the [qui
 
 ## How wi fits together
 
-A work item is the durable center of the workflow. Git worktrees, Pi processes, and tmux sessions are resources attached to it. They can stop or be recreated without losing the task.
+A work item is the durable center of the workflow. Git worktrees, coding-agent runtimes, and tmux sessions are resources attached to it. They can stop or be recreated without losing the task.
 
 | Part | What it represents |
 | --- | --- |
 | Work item | Durable task identity, description, state, labels, and history |
 | Workspace | An isolated Git checkout assigned to the item |
-| Conversation | The item's persistent primary Pi session |
+| Agent | The selected configured agent definition and its driver |
+| Conversation | The item's persistent driver-owned primary conversation |
 | Runtime | The current TUI or headless process using that conversation |
 | Attention | A ranking of active items ready for human input |
 
@@ -51,7 +52,7 @@ wi archive add-request-retries
 ## Continue by task
 
 - [Everyday workflow](guides/everyday-workflow/) covers capture, supervision, integration, and cleanup.
-- [Delegate work](guides/delegation/) covers background TUI and RPC agents.
+- [Delegate work](guides/delegation/) covers background TUI and headless agents.
 - [Review agent work](guides/review-and-follow-up/) covers diffs, tests, and corrections.
 - [Use tmux](guides/tmux/) covers interactive navigation.
 - [Troubleshooting](reference/troubleshooting/) explains common refusals and failures.

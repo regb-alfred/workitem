@@ -14,8 +14,8 @@ type AgentStatusOptions struct {
 }
 type AgentStatusResult = agentcore.AgentStatusResult
 type AgentProcessStatus = agentcore.AgentProcessStatus
-type PiSessionStatus = agentcore.PiSessionStatus
-type PiSessionEventSummary = agentcore.PiSessionEventSummary
+type ConversationStatus = agentcore.ConversationStatus
+type ConversationEventSummary = agentcore.ConversationEventSummary
 type WorktreeStatus = agentcore.WorktreeStatus
 
 func (a *App) AgentStatus(ctx context.Context, opts AgentStatusOptions) (AgentStatusResult, error) {
@@ -24,9 +24,9 @@ func (a *App) AgentStatus(ctx context.Context, opts AgentStatusOptions) (AgentSt
 func (a *App) recordPrimaryTerminalRuntime(ctx context.Context, m model.Manifest, window string) []string {
 	return a.primaryAgentService().RecordPrimaryTerminalRuntime(ctx, m, window)
 }
-func (a *App) inspectPiSession(m model.Manifest, now time.Time) (PiSessionStatus, []string) {
-	if a.PiSessionObserver != nil {
-		return a.PiSessionObserver(m, now)
+func (a *App) inspectConversation(ctx context.Context, m model.Manifest, now time.Time) (ConversationStatus, []string) {
+	if a.ConversationProjectionObserver != nil {
+		return a.ConversationProjectionObserver(ctx, m, now)
 	}
-	return a.primaryAgentService().InspectPiSession(m, now)
+	return a.observeConversation(ctx, m, now)
 }

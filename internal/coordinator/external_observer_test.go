@@ -23,7 +23,7 @@ func TestExternalObserverVerifiesRuntimeAndBuildsAgentProjection(t *testing.T) {
 	now := time.Now().UTC()
 	manifest := model.NewManifest(itemID, "observer", "Observer", nil, false, now, model.Repository{}, model.Checkout{})
 	manifest.State = model.StateWorking
-	manifest.RootPiSession = &model.PiSession{ID: "session-1", Path: "sessions/pi/session-1.jsonl"}
+	manifest.PrimaryConversation = &model.Conversation{Driver: "pi", ID: "session-1", Locator: "sessions/pi/session-1.jsonl"}
 	if err := native.CreateItem(context.Background(), manifest); err != nil {
 		t.Fatal(err)
 	}
@@ -46,11 +46,11 @@ func TestExternalObserverVerifiesRuntimeAndBuildsAgentProjection(t *testing.T) {
 		t.Fatal(err)
 	}
 	last := now.Add(-time.Second)
-	piIndex := PiSessionIndex{WorkItemID: itemID, SessionID: "session-1", Source: "items/" + itemID + "/sessions/pi/session-1.jsonl", ObservedAt: now, InferredTurnState: "idle", LastTurnActivity: &PiEventFact{Timestamp: last, Role: "assistant", Terminal: true}}
+	piIndex := ConversationIndex{WorkItemID: itemID, ConversationID: "session-1", Source: "items/" + itemID + "/sessions/pi/session-1.jsonl", ObservedAt: now, InferredTurnState: "idle", LastTurnActivity: &ConversationEventFact{Timestamp: last, Role: "assistant", Terminal: true}}
 	encodedIndex, _ := json.Marshal(piIndex)
 	safeRuntime := runtime
 	encodedRuntime, _ := json.Marshal(safeRuntime)
-	if err := db.UpdateProjections([]ProjectionUpdate{{Projection: PiSessionProjection, Key: itemID, Value: encodedIndex}, {Projection: RuntimeOwnershipProjection, Key: itemID, Value: encodedRuntime}}); err != nil {
+	if err := db.UpdateProjections([]ProjectionUpdate{{Projection: ConversationProjection, Key: itemID, Value: encodedIndex}, {Projection: RuntimeOwnershipProjection, Key: itemID, Value: encodedRuntime}}); err != nil {
 		t.Fatal(err)
 	}
 	observer := NewExternalObserver(db, root)
@@ -73,12 +73,12 @@ func TestExternalObserverVerifiesRuntimeAndBuildsAgentProjection(t *testing.T) {
 	externalObservedAt := projection.ObservedAt
 	promptAt := now.Add(time.Second)
 	piIndex.InferredTurnState = "incomplete"
-	piIndex.LastTurnActivity = &PiEventFact{Timestamp: promptAt, Role: "user"}
+	piIndex.LastTurnActivity = &ConversationEventFact{Timestamp: promptAt, Role: "user"}
 	piIndex.LastUserPrompt = piIndex.LastTurnActivity
 	activity := AttentionActivity{WorkItemID: itemID, LastRequestedAt: &promptAt, ObservedAt: promptAt, Source: piIndex.Source}
 	encodedIndex, _ = json.Marshal(piIndex)
 	encodedActivity, _ := json.Marshal(activity)
-	if err := db.UpdateProjections([]ProjectionUpdate{{Projection: PiSessionProjection, Key: itemID, Value: encodedIndex}, {Projection: AttentionActivityProjection, Key: itemID, Value: encodedActivity}}); err != nil {
+	if err := db.UpdateProjections([]ProjectionUpdate{{Projection: ConversationProjection, Key: itemID, Value: encodedIndex}, {Projection: AttentionActivityProjection, Key: itemID, Value: encodedActivity}}); err != nil {
 		t.Fatal(err)
 	}
 	if err := observer.ReconcileActionability(context.Background()); err != nil {
@@ -90,12 +90,12 @@ func TestExternalObserverVerifiesRuntimeAndBuildsAgentProjection(t *testing.T) {
 
 	settledAt := promptAt.Add(time.Second)
 	piIndex.InferredTurnState = "idle"
-	piIndex.LastTurnActivity = &PiEventFact{Timestamp: settledAt, Role: "assistant", Terminal: true}
+	piIndex.LastTurnActivity = &ConversationEventFact{Timestamp: settledAt, Role: "assistant", Terminal: true}
 	staleAt := settledAt.Add(time.Second)
 	staleRuntime := RuntimeActivity{WorkItemID: itemID, RuntimeID: "runtime-old", TurnState: "busy", LastEventAt: &staleAt, LastRequestedAt: &staleAt, ObservedAt: staleAt, Source: "daemon.runtime.live"}
 	encodedIndex, _ = json.Marshal(piIndex)
 	encodedStaleRuntime, _ := json.Marshal(staleRuntime)
-	if err := db.UpdateProjections([]ProjectionUpdate{{Projection: PiSessionProjection, Key: itemID, Value: encodedIndex}, {Projection: RuntimeActivityProjection, Key: itemID, Value: encodedStaleRuntime}}); err != nil {
+	if err := db.UpdateProjections([]ProjectionUpdate{{Projection: ConversationProjection, Key: itemID, Value: encodedIndex}, {Projection: RuntimeActivityProjection, Key: itemID, Value: encodedStaleRuntime}}); err != nil {
 		t.Fatal(err)
 	}
 	if err := observer.ReconcileActionability(context.Background()); err != nil {
@@ -110,16 +110,16 @@ func TestExternalObserverVerifiesRuntimeAndBuildsAgentProjection(t *testing.T) {
 	// agent observation. Otherwise a current settled event can be overwritten
 	// by the native session's incomplete fallback after runtime replacement.
 	piIndex.InferredTurnState = "incomplete"
-	piIndex.LastTurnActivity = &PiEventFact{Timestamp: promptAt, Role: "user"}
+	piIndex.LastTurnActivity = &ConversationEventFact{Timestamp: promptAt, Role: "user"}
 	currentSettledAt := staleAt.Add(time.Second)
 	currentRuntime := RuntimeActivity{WorkItemID: itemID, RuntimeID: runtime.ID, TurnState: "idle", LastEventAt: &currentSettledAt, LastCompletedAt: &currentSettledAt, ObservedAt: currentSettledAt, Source: "daemon.runtime.live"}
 	projection.Runtime = &model.AgentRuntime{ID: "runtime-old", WorkItemID: itemID}
 	projection.Status = "busy"
-	projection.Reason = "latest Pi activity is incomplete and runtime ownership is online"
+	projection.Reason = "latest conversation activity is incomplete and runtime ownership is online"
 	encodedIndex, _ = json.Marshal(piIndex)
 	encodedCurrentRuntime, _ := json.Marshal(currentRuntime)
 	encodedProjection, _ := json.Marshal(projection)
-	if err := db.UpdateProjections([]ProjectionUpdate{{Projection: PiSessionProjection, Key: itemID, Value: encodedIndex}, {Projection: RuntimeActivityProjection, Key: itemID, Value: encodedCurrentRuntime}, {Projection: AgentObservationProjection, Key: itemID, Value: encodedProjection}}); err != nil {
+	if err := db.UpdateProjections([]ProjectionUpdate{{Projection: ConversationProjection, Key: itemID, Value: encodedIndex}, {Projection: RuntimeActivityProjection, Key: itemID, Value: encodedCurrentRuntime}, {Projection: AgentObservationProjection, Key: itemID, Value: encodedProjection}}); err != nil {
 		t.Fatal(err)
 	}
 	if err := observer.ReconcileActionability(context.Background()); err != nil {

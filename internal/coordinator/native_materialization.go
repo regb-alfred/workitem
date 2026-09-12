@@ -57,10 +57,8 @@ func materializeCreate(database *Database, native *store.Store, write pendingNat
 	if err := os.MkdirAll(itemDir, 0o700); err != nil {
 		return err
 	}
-	for _, relative := range []string{filepath.Join("sessions", "pi"), "locks"} {
-		if err := os.MkdirAll(filepath.Join(itemDir, relative), 0o700); err != nil {
-			return err
-		}
+	if err := os.MkdirAll(filepath.Join(itemDir, "locks"), 0o700); err != nil {
+		return err
 	}
 	descriptionPath := filepath.Join(itemDir, model.DescriptionFilename)
 	if _, err := os.Lstat(descriptionPath); os.IsNotExist(err) {

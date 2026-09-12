@@ -27,7 +27,7 @@ wi new --deep --desc-file design.md "Redesign token storage"
 wi start harden-token-refresh
 ```
 
-Starting changes backlog to working, checks capacity, materializes the workspace, and starts the selected runtime. The default TUI mode enters tmux. Use `--agent-mode rpc` for a headless run.
+Starting changes backlog to working, checks capacity, materializes the workspace, and starts the selected runtime. The default TUI mode enters tmux. Use `--agent-mode headless` for a headless run.
 
 For a small task where the title is enough context, create and start it in one command:
 

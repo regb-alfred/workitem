@@ -142,15 +142,15 @@ func TestSubmitControlPopulatesProtocolIdentity(t *testing.T) {
 func TestPortableControlSocketPathKeepsDataRootsIsolated(t *testing.T) {
 	relative := runtimepath.ControlSocket("item-1", "runtime-1")
 	candidate := filepath.Join("/private/var/folders", strings.Repeat("long-runtime-root", 8), filepath.FromSlash(relative))
-	first := portableControlSocketPath("darwin", candidate, "/data/root-one", relative)
-	second := portableControlSocketPath("darwin", candidate, "/data/root-two", relative)
+	first := portableRuntimeSocketPath("darwin", candidate, "/data/root-one", relative)
+	second := portableRuntimeSocketPath("darwin", candidate, "/data/root-two", relative)
 	if first == candidate || second == candidate {
 		t.Fatalf("long Darwin path did not use fallback: first=%q second=%q", first, second)
 	}
 	if first == second {
 		t.Fatalf("different data roots share fallback path %q", first)
 	}
-	if again := portableControlSocketPath("darwin", candidate, "/data/root-one", relative); again != first {
+	if again := portableRuntimeSocketPath("darwin", candidate, "/data/root-one", relative); again != first {
 		t.Fatalf("fallback path is unstable: %q != %q", again, first)
 	}
 	if len(first) >= 100 || len(second) >= 100 {
@@ -174,7 +174,7 @@ func TestObserveOwnershipRequiresLiveControlSocket(t *testing.T) {
 	if !withoutSocket.ProcessAlive || withoutSocket.ControlAvailable || withoutSocket.Mode != string(agent.ModeTUI) {
 		t.Fatalf("ownership without socket=%+v", withoutSocket)
 	}
-	controlledRuntime := model.AgentRuntime{ID: "controlled", WorkItemID: "item-1", Mode: string(agent.ModeRPC), HostPID: 42, HostProcessGroup: 42, HostStartTime: 42}
+	controlledRuntime := model.AgentRuntime{ID: "controlled", WorkItemID: "item-1", Mode: string(agent.ModeHeadless), HostPID: 42, HostProcessGroup: 42, HostStartTime: 42}
 	server, err := agent.ListenControlSocket(filepath.Join(root, filepath.FromSlash(runtimepath.ControlSocket("item-1", controlledRuntime.ID))))
 	if err != nil {
 		t.Fatal(err)
@@ -191,7 +191,7 @@ func TestObserveOwnershipRequiresLiveControlSocket(t *testing.T) {
 }
 
 func TestRuntimeStatus(t *testing.T) {
-	st := &runtimeStore{runtime: &model.AgentRuntime{ID: "runtime-1", WorkItemID: "item-1", Mode: string(agent.ModeRPC), HostPID: 42, HostProcessGroup: 42, HostStartTime: 42}}
+	st := &runtimeStore{runtime: &model.AgentRuntime{ID: "runtime-1", WorkItemID: "item-1", Mode: string(agent.ModeHeadless), HostPID: 42, HostProcessGroup: 42, HostStartTime: 42}}
 	resolve := func(context.Context, contract.ResolveOptions) (model.Manifest, error) {
 		return model.Manifest{ID: "item-1"}, nil
 	}

@@ -12,12 +12,12 @@ import (
 	tmuxpkg "github.com/regb/workitem/internal/tmux"
 )
 
-func (a *App) launchPiSessionInTmuxWithEnvironment(ctx context.Context, m model.Manifest, session model.PiSession, reuseAgent bool, runtimeEnv map[string]string, scrub []string) ([]string, error) {
+func (a *App) launchAgentInTmuxWithEnvironment(ctx context.Context, m model.Manifest, session model.Conversation, reuseAgent bool, runtimeEnv map[string]string, scrub []string) ([]string, error) {
 	warnings := []string{}
 	if a.Tmux == nil {
 		return warnings, fmt.Errorf("tmux adapter is not configured")
 	}
-	if err := a.ensurePiSessionNotRunning(m, session); err != nil {
+	if err := a.ensureConversationNotRunning(m, session); err != nil {
 		return warnings, err
 	}
 	spec := a.tmuxSpecWithEnvironmentAndScrub(m, runtimeEnv, scrub)
@@ -36,9 +36,9 @@ func (a *App) launchPiSessionInTmuxWithEnvironment(ctx context.Context, m model.
 		self = "wi"
 	}
 	cwd := agentcore.ExecutionCWD(m, session)
-	window := "pi-" + strings.ToLower(model.ShortID(session.ID))
+	window := "agent-" + strings.ToLower(model.ShortID(session.ID))
 	if err := a.Tmux.LaunchCommand(ctx, tmuxpkg.LaunchSpec{SessionName: m.TerminalSessionName(), WindowName: window, CWD: cwd,
-		Command: []string{self, "agent", "exec", "--item", m.ID, "--session", session.ID, "--runtime", runtime.ID, "--mode", string(agent.ModeTUI)},
+		Command: []string{self, "agent", "exec", "--item", m.ID, "--conversation", session.ID, "--runtime", runtime.ID, "--mode", string(agent.ModeTUI)},
 		Env:     spec.Env, Scrub: spec.Scrub, ReuseAgentWindow: reuseAgent}); err != nil {
 		runtime.State, runtime.UpdatedAt = model.AgentRuntimeProblem, a.now()
 		_ = a.Store.SaveAgentRuntime(ctx, m.ID, runtime)

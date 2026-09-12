@@ -66,7 +66,7 @@ func runAgentRuntimeEnsure(ctx context.Context, args []string, cfg Config, jsonO
 	fs := newFlagSet("agent runtime ensure", cfg.Stderr)
 	var item, modeValue string
 	fs.StringVar(&item, "item", "", "work item selector (default: current item)")
-	fs.StringVar(&modeValue, "mode", "", "runtime mode: tui or rpc")
+	fs.StringVar(&modeValue, "mode", "", "runtime mode: tui or headless")
 	if err := fs.Parse(args); err != nil {
 		return usageErr{err}
 	}
@@ -75,7 +75,7 @@ func runAgentRuntimeEnsure(ctx context.Context, args []string, cfg Config, jsonO
 		return usageErr{err}
 	}
 	if strings.TrimSpace(modeValue) == "" {
-		return usageErr{errors.New("--mode is required; expected tui or rpc")}
+		return usageErr{errors.New("--mode is required; expected tui or headless")}
 	}
 	mode, err := agent.ParseMode(modeValue)
 	if err != nil {

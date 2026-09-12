@@ -14,10 +14,6 @@ import (
 
 var ErrNotRepository = errors.New("not inside a git repository")
 
-// RepositoryInfo remains an alias for compatibility; the neutral contract is
-// owned by model so core application packages do not depend on this adapter.
-type RepositoryInfo = model.RepositoryInfo
-
 type WorktreeAddOptions = model.WorktreeAddOptions
 
 type WorktreeInfo struct {
@@ -40,22 +36,22 @@ func New(path string) Client {
 	return Client{Path: path}
 }
 
-func (c Client) DetectRepository(ctx context.Context, dir, revision string) (RepositoryInfo, error) {
+func (c Client) DetectRepository(ctx context.Context, dir, revision string) (model.RepositoryInfo, error) {
 	if dir == "" {
 		dir = "."
 	}
 	root, err := c.output(ctx, dir, "rev-parse", "--show-toplevel")
 	if err != nil {
-		return RepositoryInfo{}, fmt.Errorf("%w: %v", ErrNotRepository, err)
+		return model.RepositoryInfo{}, fmt.Errorf("%w: %v", ErrNotRepository, err)
 	}
 	root, err = filepath.Abs(strings.TrimSpace(root))
 	if err != nil {
-		return RepositoryInfo{}, fmt.Errorf("resolve repository root: %w", err)
+		return model.RepositoryInfo{}, fmt.Errorf("resolve repository root: %w", err)
 	}
 
 	common, err := c.output(ctx, root, "rev-parse", "--git-common-dir")
 	if err != nil {
-		return RepositoryInfo{}, fmt.Errorf("resolve git common directory: %w", err)
+		return model.RepositoryInfo{}, fmt.Errorf("resolve git common directory: %w", err)
 	}
 	common = strings.TrimSpace(common)
 	if !filepath.IsAbs(common) {
@@ -63,7 +59,7 @@ func (c Client) DetectRepository(ctx context.Context, dir, revision string) (Rep
 	}
 	common, err = filepath.Abs(common)
 	if err != nil {
-		return RepositoryInfo{}, fmt.Errorf("resolve git common directory: %w", err)
+		return model.RepositoryInfo{}, fmt.Errorf("resolve git common directory: %w", err)
 	}
 
 	rev := "HEAD"
@@ -72,7 +68,7 @@ func (c Client) DetectRepository(ctx context.Context, dir, revision string) (Rep
 	}
 	commit, err := c.output(ctx, root, "rev-parse", "--verify", rev+"^{commit}")
 	if err != nil {
-		return RepositoryInfo{}, fmt.Errorf("resolve commit %q: %w", rev, err)
+		return model.RepositoryInfo{}, fmt.Errorf("resolve commit %q: %w", rev, err)
 	}
 	commit = strings.TrimSpace(commit)
 
@@ -83,11 +79,11 @@ func (c Client) DetectRepository(ctx context.Context, dir, revision string) (Rep
 		remote = strings.TrimSpace(remote)
 		remote, err = model.SanitizeRemoteURL(remote)
 		if err != nil {
-			return RepositoryInfo{}, fmt.Errorf("sanitize origin remote URL: %w", err)
+			return model.RepositoryInfo{}, fmt.Errorf("sanitize origin remote URL: %w", err)
 		}
 	}
 
-	return RepositoryInfo{
+	return model.RepositoryInfo{
 		Repository: model.Repository{
 			RootAtCreation:    root,
 			GitCommonDir:      common,

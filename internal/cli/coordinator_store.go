@@ -17,12 +17,12 @@ import (
 func BindCoordinatorApp(application *app.App, native *storepkg.Store, client *coordinator.Client) {
 	application.Store = newCoordinatorStore(native, client)
 	application.DaemonSocketPath = client.SocketPath
-	application.PiSessionObserver = coordinatorPiSessionObserver(client)
+	application.ConversationProjectionObserver = coordinatorConversationObserver(client)
 	application.WorkListObserver = coordinatorWorkListObserver(client)
 }
 
 // coordinatorStore makes the daemon the commit point for every mutation issued
-// through App while keeping descriptions and Pi sessions available on disk.
+// through App while keeping descriptions and Conversations available on disk.
 type coordinatorStore struct {
 	app.Store
 	client *coordinator.Client

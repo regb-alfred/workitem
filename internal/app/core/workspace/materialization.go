@@ -254,7 +254,14 @@ func (s *Service) Release(ctx context.Context, opts contract.ResolveOptions, for
 		}
 	}
 	if err := s.EnsureReleasable(ctx, m); err != nil {
-		return ReleaseResult{}, err
+		missingRepositoryHome := force && m.Checkout.Kind == model.WorkspaceKindRepositoryHome && m.Checkout.Path != nil
+		if missingRepositoryHome {
+			_, statErr := os.Stat(*m.Checkout.Path)
+			missingRepositoryHome = os.IsNotExist(statErr)
+		}
+		if !missingRepositoryHome {
+			return ReleaseResult{}, err
+		}
 	}
 	hadCheckout := m.Checkout.Present() && m.Checkout.Path != nil && *m.Checkout.Path != ""
 	released, err := s.releaseCheckout(ctx, m, force)

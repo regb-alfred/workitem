@@ -12,7 +12,7 @@ A work item owns:
 - lifecycle state
 - labels and deep-work classification
 - repository and checkout specification
-- one durable primary Pi conversation
+- one selected agent definition and one durable primary conversation
 - append-only event history
 
 Workspaces, agent processes, and tmux sessions can disappear and be rebuilt. The work item remains the identity that ties them together.
@@ -32,7 +32,7 @@ wi new --prompt "Find the race, add a regression test, and report the cause." \
   "Investigate cache race"
 ```
 
-This stores the prompt as the description, changes the item to `working`, starts an unattached runtime, and sends the prompt to Pi.
+This stores the prompt as the description, changes the item to `working`, starts an unattached runtime, and sends the prompt through the selected agent driver.
 
 ## Descriptions are handoffs
 

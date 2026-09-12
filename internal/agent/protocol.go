@@ -3,47 +3,39 @@ package agent
 import (
 	"encoding/json"
 	"time"
+
+	driverprotocol "github.com/regb/workitem/agentdriver/protocol"
 )
 
-const RuntimeProtocolVersion = 1
+const RuntimeProtocolVersion = driverprotocol.Version
 
 const (
-	CommandPrompt   = "prompt"
-	CommandSteer    = "steer"
-	CommandFollowUp = "follow_up"
-	CommandAbort    = "abort"
-	CommandShutdown = "shutdown"
+	CommandPrompt   = driverprotocol.CommandPrompt
+	CommandSteer    = driverprotocol.CommandSteer
+	CommandFollowUp = driverprotocol.CommandFollowUp
+	CommandAbort    = driverprotocol.CommandAbort
+	CommandShutdown = driverprotocol.CommandShutdown
 )
 
-type ControlCommand struct {
-	ProtocolVersion int       `json:"protocol_version"`
-	ID              string    `json:"id"`
-	RuntimeID       string    `json:"runtime_id"`
-	WorkItemID      string    `json:"work_item_id"`
-	RequestID       string    `json:"request_id,omitempty"`
-	Type            string    `json:"type"`
-	Actor           string    `json:"actor,omitempty"`
-	Message         string    `json:"message,omitempty"`
-	CreatedAt       time.Time `json:"created_at"`
-}
+type ControlCommand = driverprotocol.ControlCommand
 
 const (
-	EventRuntimeReady     = "runtime.ready"
-	EventCommandAccepted  = "command.accepted"
-	EventCommandRejected  = "command.rejected"
-	EventAgentStarted     = "agent.started"
-	EventAgentSettled     = "agent.settled"
-	EventTurnStarted      = "turn.started"
-	EventTurnEnded        = "turn.ended"
-	EventMessageDelta     = "message.delta"
-	EventMessageCompleted = "message.completed"
-	EventToolStarted      = "tool.started"
-	EventToolUpdated      = "tool.updated"
-	EventToolCompleted    = "tool.completed"
-	EventQueueChanged     = "queue.changed"
-	EventSessionChanged   = "session.changed"
-	EventRuntimeStopping  = "runtime.stopping"
-	EventRuntimeFailed    = "runtime.failed"
+	EventRuntimeReady     = driverprotocol.EventRuntimeReady
+	EventCommandAccepted  = driverprotocol.EventCommandAccepted
+	EventCommandRejected  = driverprotocol.EventCommandRejected
+	EventAgentStarted     = driverprotocol.EventAgentStarted
+	EventAgentSettled     = driverprotocol.EventAgentSettled
+	EventTurnStarted      = driverprotocol.EventTurnStarted
+	EventTurnEnded        = driverprotocol.EventTurnEnded
+	EventMessageDelta     = driverprotocol.EventMessageDelta
+	EventMessageCompleted = driverprotocol.EventMessageCompleted
+	EventToolStarted      = driverprotocol.EventToolStarted
+	EventToolUpdated      = driverprotocol.EventToolUpdated
+	EventToolCompleted    = driverprotocol.EventToolCompleted
+	EventQueueChanged     = driverprotocol.EventQueueChanged
+	EventSessionChanged   = driverprotocol.EventSessionChanged
+	EventRuntimeStopping  = driverprotocol.EventRuntimeStopping
+	EventRuntimeFailed    = driverprotocol.EventRuntimeFailed
 )
 
 type RuntimeEvent struct {

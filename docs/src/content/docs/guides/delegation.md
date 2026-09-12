@@ -9,7 +9,7 @@ Delegation works best when the receiving agent does not need the conversation th
 
 ```bash
 wi new \
-  --agent-mode rpc \
+  --agent-mode headless \
   --prompt "Inspect dependency updates, run the test suite, and report any behavior changes. Do not modify files." \
   "Audit dependency updates"
 ```

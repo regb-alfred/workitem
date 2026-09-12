@@ -128,7 +128,7 @@ func TestLaunchCommandUsesAgentWindow(t *testing.T) {
 		SessionName:      "wi-session",
 		CWD:              "/tmp/worktree",
 		Env:              map[string]string{"WI_ID": "abc"},
-		Command:          []string{"/path with space/wi", "agent", "exec", "--item", "abc", "--session", "def"},
+		Command:          []string{"/path with space/wi", "agent", "exec", "--item", "abc", "--conversation", "def"},
 		ReuseAgentWindow: true,
 	}); err != nil {
 		t.Fatal(err)
@@ -142,7 +142,7 @@ func TestLaunchCommandUsesAgentWindow(t *testing.T) {
 	if !reflect.DeepEqual(r.calls[1].Args, []string{"list-windows", "-t", "wi-session", "-F", "#{window_name}"}) {
 		t.Fatalf("inspection args = %#v", r.calls[1].Args)
 	}
-	wantCommand := "'/path with space/wi' agent exec --item abc --session def"
+	wantCommand := "'/path with space/wi' agent exec --item abc --conversation def"
 	if !reflect.DeepEqual(r.calls[2].Args, []string{"respawn-pane", "-k", "-c", "/tmp/worktree", "-t", "wi-session:agent", wantCommand}) {
 		t.Fatalf("launch args = %#v", r.calls[2].Args)
 	}
@@ -176,14 +176,14 @@ func TestLaunchCommandCreatesNewWindow(t *testing.T) {
 		WindowName:  "alt",
 		CWD:         "/tmp/worktree",
 		Env:         map[string]string{"WI_ID": "abc"},
-		Command:     []string{"wi", "agent", "exec", "--session", "def"},
+		Command:     []string{"wi", "agent", "exec", "--conversation", "def"},
 	}); err != nil {
 		t.Fatal(err)
 	}
 	if !reflect.DeepEqual(r.calls[0].Args, []string{"set-environment", "-t", "wi-session", "WI_ID", "abc"}) {
 		t.Fatalf("environment set args = %#v", r.calls[0].Args)
 	}
-	if !reflect.DeepEqual(r.calls[1].Args, []string{"new-window", "-t", "wi-session:", "-n", "alt", "-c", "/tmp/worktree", "wi agent exec --session def"}) {
+	if !reflect.DeepEqual(r.calls[1].Args, []string{"new-window", "-t", "wi-session:", "-n", "alt", "-c", "/tmp/worktree", "wi agent exec --conversation def"}) {
 		t.Fatalf("new-window args = %#v", r.calls[1].Args)
 	}
 }

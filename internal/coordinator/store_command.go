@@ -187,7 +187,7 @@ func applyCanonicalStoreMutation(tx *bolt.Tx, command StoreCommand, payload json
 		if typeName == "" {
 			return "", nil, errors.New("event type is required")
 		}
-		compact, _ = json.Marshal(map[string]any{"legacy_event_type": typeName})
+		compact, _ = json.Marshal(map[string]any{"event_type": typeName})
 		if typeName == "attention.deferred" {
 			activity := AttentionActivity{WorkItemID: command.ItemID, LastDeferredAt: ptrTime(event.Time.UTC())}
 			if bucket, err := tx.Bucket(bucketProjections).CreateBucketIfNotExists([]byte(AttentionActivityProjection)); err == nil {
@@ -241,7 +241,7 @@ func applyCanonicalStoreMutation(tx *bolt.Tx, command StoreCommand, payload json
 		if err := tx.Bucket(bucketImportSources).Delete([]byte(command.ItemID)); err != nil {
 			return "", nil, err
 		}
-		for _, name := range []string{AgentObservationProjection, AttentionActivityProjection, RuntimeActivityProjection, PiSessionProjection, RuntimeOwnershipProjection, TerminalOwnershipProjection} {
+		for _, name := range []string{AgentObservationProjection, AttentionActivityProjection, RuntimeActivityProjection, ConversationProjection, RuntimeOwnershipProjection, TerminalOwnershipProjection} {
 			if bucket := tx.Bucket(bucketProjections).Bucket([]byte(name)); bucket != nil {
 				_ = bucket.Delete([]byte(command.ItemID))
 			}

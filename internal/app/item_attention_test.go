@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	pidriver "github.com/regb/workitem/internal/agentdriver/pi"
 	"github.com/regb/workitem/internal/config"
 	"github.com/regb/workitem/internal/model"
 	"github.com/regb/workitem/internal/store"
@@ -44,7 +45,7 @@ func TestSetWorkItemStateTransitionsWithoutWorkspaceAdapters(t *testing.T) {
 			now := testutil.Time().Add(time.Duration(i) * time.Minute)
 			application, st, manifest := newCoreTestApp(t, now, tc.from, false)
 			originalCheckout := manifest.Checkout
-			originalPi := manifest.RootPiSession
+			originalPi := manifest.PrimaryConversation
 
 			result, err := application.SetWorkItemState(context.Background(), ResolveOptions{Selector: manifest.ID}, tc.to, false)
 			if !tc.valid {
@@ -77,8 +78,8 @@ func TestSetWorkItemStateTransitionsWithoutWorkspaceAdapters(t *testing.T) {
 			if err != nil || shown.State != tc.to || shown.WorkItemID != manifest.ID {
 				t.Fatalf("state read = %+v err=%v", shown, err)
 			}
-			if !reflect.DeepEqual(persisted.Checkout, originalCheckout) || !reflect.DeepEqual(persisted.RootPiSession, originalPi) {
-				t.Fatalf("state transition changed workspace fields: before=%+v/%+v after=%+v/%+v", originalCheckout, originalPi, persisted.Checkout, persisted.RootPiSession)
+			if !reflect.DeepEqual(persisted.Checkout, originalCheckout) || !reflect.DeepEqual(persisted.PrimaryConversation, originalPi) {
+				t.Fatalf("state transition changed workspace fields: before=%+v/%+v after=%+v/%+v", originalCheckout, originalPi, persisted.Checkout, persisted.PrimaryConversation)
 			}
 			if tc.to == model.StateArchived && persisted.Slug != "" {
 				t.Fatalf("archived slug = %q", persisted.Slug)
@@ -141,11 +142,11 @@ func TestSetWorkItemStateEnforcesDeepWorkCapacity(t *testing.T) {
 func TestAttentionFactsUseOnlyDurableFiles(t *testing.T) {
 	base := testutil.Time()
 	application, st, manifest := newCoreTestApp(t, base.Add(3*time.Minute), model.StateWorking, false)
-	manifest.RootPiSession = &model.PiSession{ID: testutil.ID(t, 41), Path: filepath.Join("sessions", "pi", "root.jsonl")}
+	manifest.PrimaryConversation = &model.Conversation{Driver: "pi", ID: testutil.ID(t, 41), Locator: filepath.Join("sessions", "pi", "root.jsonl")}
 	if err := st.SaveManifest(context.Background(), manifest); err != nil {
 		t.Fatal(err)
 	}
-	piPath := filepath.Join(st.ItemDir(manifest.ID), filepath.FromSlash(manifest.RootPiSession.Path))
+	piPath := filepath.Join(st.ItemDir(manifest.ID), filepath.FromSlash(manifest.PrimaryConversation.NativeLocator()))
 	if err := os.MkdirAll(filepath.Dir(piPath), 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -214,6 +215,7 @@ func newCoreTestApp(t *testing.T, now time.Time, state string, deep bool) (*App,
 		t.Fatal(err)
 	}
 	application := New(st, nil)
+	application.ConversationProjectionObserver = pidriver.ObserveConversation(st.ItemDir)
 	application.Process = nil
 	application.Clock = coreTestClock{now: now}
 	return application, st, manifest
@@ -230,7 +232,7 @@ func coreManifest(t *testing.T, id, slug, state string, deep bool, now time.Time
 	if state == model.StateArchived {
 		manifest.Slug = ""
 	}
-	manifest.RootPiSession = &model.PiSession{ID: testutil.ID(t, 40), Path: filepath.Join("sessions", "pi", "existing.jsonl")}
+	manifest.PrimaryConversation = &model.Conversation{Driver: "pi", ID: testutil.ID(t, 40), Locator: filepath.Join("sessions", "pi", "existing.jsonl")}
 	return manifest
 }
 

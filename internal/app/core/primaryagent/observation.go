@@ -15,7 +15,7 @@ import (
 
 const defaultAgentStaleAfter = 10 * time.Minute
 
-var piProcessNeedles = []string{"pi", "pi-coding-agent", "@earendil-works/pi-coding-agent"}
+var agentProcessNeedles = []string{"internal-driver", "wi-agent-"}
 
 type AgentStatusOptions struct {
 	contract.ResolveOptions
@@ -23,62 +23,62 @@ type AgentStatusOptions struct {
 }
 
 type AgentStatusResult struct {
-	WorkItemID string                 `json:"work_item_id"`
-	Status     string                 `json:"status"`
-	Reason     string                 `json:"reason,omitempty"`
-	ObservedAt time.Time              `json:"observed_at"`
-	Terminal   *model.TerminalRuntime `json:"terminal,omitempty"`
-	Runtime    *model.AgentRuntime    `json:"runtime,omitempty"`
-	Process    AgentProcessStatus     `json:"process"`
-	PiSession  PiSessionStatus        `json:"pi_session"`
-	Worktree   *WorktreeStatus        `json:"worktree,omitempty"`
-	Manifest   model.Manifest         `json:"manifest,omitempty"`
-	Warnings   []string               `json:"warnings"`
+	WorkItemID   string                 `json:"work_item_id"`
+	Status       string                 `json:"status"`
+	Reason       string                 `json:"reason,omitempty"`
+	ObservedAt   time.Time              `json:"observed_at"`
+	Terminal     *model.TerminalRuntime `json:"terminal,omitempty"`
+	Runtime      *model.AgentRuntime    `json:"runtime,omitempty"`
+	Process      AgentProcessStatus     `json:"process"`
+	Conversation ConversationStatus     `json:"conversation"`
+	Worktree     *WorktreeStatus        `json:"worktree,omitempty"`
+	Manifest     model.Manifest         `json:"manifest,omitempty"`
+	Warnings     []string               `json:"warnings"`
 }
 
 type AgentProcessStatus struct {
-	RuntimeID         string `json:"runtime_id,omitempty"`
-	RuntimeMode       string `json:"runtime_mode,omitempty"`
-	RuntimeHostPID    int    `json:"runtime_host_pid,omitempty"`
-	ControlAvailable  bool   `json:"control_available"`
-	TmuxSession       string `json:"tmux_session,omitempty"`
-	TmuxWindow        string `json:"tmux_window,omitempty"`
-	TmuxPaneID        string `json:"tmux_pane_id,omitempty"`
-	TmuxPaneIndex     string `json:"tmux_pane_index,omitempty"`
-	TmuxPanePID       int    `json:"tmux_pane_pid,omitempty"`
-	TmuxPaneCommand   string `json:"tmux_pane_command,omitempty"`
-	TmuxPanePath      string `json:"tmux_pane_path,omitempty"`
-	TmuxPaneAlive     bool   `json:"tmux_pane_alive"`
-	PiPID             int    `json:"pi_pid,omitempty"`
-	PiProcessCommand  string `json:"pi_process_command,omitempty"`
-	PiProcessAlive    bool   `json:"pi_process_alive"`
-	Online            bool   `json:"online"`
-	DiscoverySource   string `json:"discovery_source,omitempty"`
-	UnavailableReason string `json:"unavailable_reason,omitempty"`
+	RuntimeID             string `json:"runtime_id,omitempty"`
+	RuntimeMode           string `json:"runtime_mode,omitempty"`
+	RuntimeHostPID        int    `json:"runtime_host_pid,omitempty"`
+	ControlAvailable      bool   `json:"control_available"`
+	TmuxSession           string `json:"tmux_session,omitempty"`
+	TmuxWindow            string `json:"tmux_window,omitempty"`
+	TmuxPaneID            string `json:"tmux_pane_id,omitempty"`
+	TmuxPaneIndex         string `json:"tmux_pane_index,omitempty"`
+	TmuxPanePID           int    `json:"tmux_pane_pid,omitempty"`
+	TmuxPaneCommand       string `json:"tmux_pane_command,omitempty"`
+	TmuxPanePath          string `json:"tmux_pane_path,omitempty"`
+	TmuxPaneAlive         bool   `json:"tmux_pane_alive"`
+	BackendPID            int    `json:"backend_pid,omitempty"`
+	BackendProcessCommand string `json:"backend_process_command,omitempty"`
+	BackendProcessAlive   bool   `json:"backend_process_alive"`
+	Online                bool   `json:"online"`
+	DiscoverySource       string `json:"discovery_source,omitempty"`
+	UnavailableReason     string `json:"unavailable_reason,omitempty"`
 }
 
-type PiSessionStatus struct {
-	ID                     string                 `json:"id,omitempty"`
-	Path                   string                 `json:"path,omitempty"`
-	PathRel                string                 `json:"path_rel,omitempty"`
-	Source                 string                 `json:"source,omitempty"`
-	Exists                 bool                   `json:"exists"`
-	SizeBytes              int64                  `json:"size_bytes,omitempty"`
-	ModTime                time.Time              `json:"mod_time,omitempty"`
-	EntriesScanned         int                    `json:"entries_scanned"`
-	MalformedLines         int                    `json:"malformed_lines,omitempty"`
-	LastEvent              *PiSessionEventSummary `json:"last_event,omitempty"`
-	LastTurnActivity       *PiSessionEventSummary `json:"last_turn_activity,omitempty"`
-	LastUserPrompt         *PiSessionEventSummary `json:"last_user_prompt,omitempty"`
-	LastAssistantMessage   *PiSessionEventSummary `json:"last_assistant_message,omitempty"`
-	LastTerminalAssistant  *PiSessionEventSummary `json:"last_terminal_assistant,omitempty"`
-	LastToolActivity       *PiSessionEventSummary `json:"last_tool_activity,omitempty"`
-	LastActivityAgeSeconds int64                  `json:"last_activity_age_seconds,omitempty"`
-	InferredTurnState      string                 `json:"inferred_turn_state,omitempty"`
-	UnavailableReason      string                 `json:"unavailable_reason,omitempty"`
+type ConversationStatus struct {
+	ID                     string                    `json:"id,omitempty"`
+	Path                   string                    `json:"path,omitempty"`
+	PathRel                string                    `json:"path_rel,omitempty"`
+	Source                 string                    `json:"source,omitempty"`
+	Exists                 bool                      `json:"exists"`
+	SizeBytes              int64                     `json:"size_bytes,omitempty"`
+	ModTime                time.Time                 `json:"mod_time,omitempty"`
+	EntriesScanned         int                       `json:"entries_scanned"`
+	MalformedLines         int                       `json:"malformed_lines,omitempty"`
+	LastEvent              *ConversationEventSummary `json:"last_event,omitempty"`
+	LastTurnActivity       *ConversationEventSummary `json:"last_turn_activity,omitempty"`
+	LastUserPrompt         *ConversationEventSummary `json:"last_user_prompt,omitempty"`
+	LastAssistantMessage   *ConversationEventSummary `json:"last_assistant_message,omitempty"`
+	LastTerminalAssistant  *ConversationEventSummary `json:"last_terminal_assistant,omitempty"`
+	LastToolActivity       *ConversationEventSummary `json:"last_tool_activity,omitempty"`
+	LastActivityAgeSeconds int64                     `json:"last_activity_age_seconds,omitempty"`
+	InferredTurnState      string                    `json:"inferred_turn_state,omitempty"`
+	UnavailableReason      string                    `json:"unavailable_reason,omitempty"`
 }
 
-type PiSessionEventSummary struct {
+type ConversationEventSummary struct {
 	Line         int       `json:"line"`
 	Type         string    `json:"type"`
 	Timestamp    time.Time `json:"timestamp,omitempty"`
@@ -139,14 +139,14 @@ func (s *Service) AgentStatus(ctx context.Context, opts AgentStatusOptions) (Age
 	if res.Process.UnavailableReason != "" {
 		res.Warnings = append(res.Warnings, res.Process.UnavailableReason)
 	}
-	var piSession PiSessionStatus
+	var conversation ConversationStatus
 	var sessionWarnings []string
-	if s.PiSessionObserver != nil {
-		piSession, sessionWarnings = s.PiSessionObserver(m, now)
+	if s.ConversationObserver != nil {
+		conversation, sessionWarnings = s.ConversationObserver(ctx, m, now)
 	} else {
-		piSession, sessionWarnings = s.InspectPiSession(m, now)
+		conversation.UnavailableReason = "conversation observer is not configured"
 	}
-	res.PiSession = piSession
+	res.Conversation = conversation
 	res.Warnings = append(res.Warnings, sessionWarnings...)
 	worktreeStatus, worktreeWarnings := s.inspectWorktree(ctx, m)
 	res.Worktree = worktreeStatus
@@ -157,7 +157,7 @@ func (s *Service) AgentStatus(ctx context.Context, opts AgentStatusOptions) (Age
 		res.Warnings = append(res.Warnings, fmt.Sprintf("agent pane path %s does not belong to current checkout %s", res.Process.TmuxPanePath, *m.Checkout.Path))
 		return res, nil
 	}
-	res.Status, res.Reason = deriveAgentStatus(res.Process, res.PiSession, now, staleAfter)
+	res.Status, res.Reason = deriveAgentStatus(res.Process, res.Conversation, now, staleAfter)
 	return res, nil
 }
 
@@ -191,13 +191,13 @@ func (s *Service) inspectPrimaryAgentProcess(ctx context.Context, m model.Manife
 		status.Online = ownership.ProcessAlive
 		if status.Online {
 			status.DiscoverySource = "agent-runtime"
-			if proc, ok, err := s.process.FindDescendant(runtime.HostPID, piProcessNeedles); err == nil && ok {
-				status.PiPID = proc.PID
-				status.PiProcessCommand = proc.CommandLine()
-				status.PiProcessAlive = s.process.Alive(proc.PID)
+			if proc, ok, err := s.process.FindDescendant(runtime.HostPID, agentProcessNeedles); err == nil && ok {
+				status.BackendPID = proc.PID
+				status.BackendProcessCommand = proc.CommandLine()
+				status.BackendProcessAlive = s.process.Alive(proc.PID)
 			}
 		}
-		if runtime.Mode == "rpc" {
+		if runtime.Mode == "headless" {
 			if !status.Online {
 				status.UnavailableReason = "headless agent runtime is not online"
 			}
@@ -242,73 +242,22 @@ func (s *Service) inspectPrimaryAgentProcess(ctx context.Context, m model.Manife
 			status.TmuxPaneAlive = s.process.Alive(status.TmuxPanePID)
 		}
 		if status.TmuxPaneAlive {
-			if proc, ok, err := s.process.FindDescendant(status.TmuxPanePID, piProcessNeedles); err != nil {
+			if proc, ok, err := s.process.FindDescendant(status.TmuxPanePID, agentProcessNeedles); err != nil {
 				if status.UnavailableReason == "" {
-					status.UnavailableReason = "could not discover Pi process: " + err.Error()
+					status.UnavailableReason = "could not discover agent backend process: " + err.Error()
 				}
 			} else if ok {
-				status.PiPID = proc.PID
-				status.PiProcessCommand = proc.CommandLine()
-				status.PiProcessAlive = s.process.Alive(proc.PID)
+				status.BackendPID = proc.PID
+				status.BackendProcessCommand = proc.CommandLine()
+				status.BackendProcessAlive = s.process.Alive(proc.PID)
 			}
 		}
-		if status.PiPID > 0 && !status.PiProcessAlive {
-			status.PiProcessAlive = s.process.Alive(status.PiPID)
+		if status.BackendPID > 0 && !status.BackendProcessAlive {
+			status.BackendProcessAlive = s.process.Alive(status.BackendPID)
 		}
 	}
-	status.Online = status.PiProcessAlive || (status.TmuxPaneAlive && status.PiPID == 0)
+	status.Online = status.BackendProcessAlive || (status.TmuxPaneAlive && status.BackendPID == 0)
 	return status
-}
-
-func (s *Service) InspectPiSession(m model.Manifest, now time.Time) (PiSessionStatus, []string) {
-	warnings := []string{}
-	status := PiSessionStatus{}
-	if m.RootPiSession == nil {
-		status.UnavailableReason = "no root Pi session is recorded for this work item"
-		return status, warnings
-	}
-	status.ID = m.RootPiSession.ID
-	status.PathRel = m.RootPiSession.Path
-	status.Source = "manifest.root_pi_session"
-	absPath, err := s.AbsPath(m.ID, m.RootPiSession.Path)
-	if err != nil {
-		status.UnavailableReason = err.Error()
-		return status, warnings
-	}
-	status.Path = absPath
-	info, err := os.Stat(absPath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			status.UnavailableReason = "Pi session file is missing"
-			return status, warnings
-		}
-		status.UnavailableReason = "could not stat Pi session file: " + err.Error()
-		return status, warnings
-	}
-	status.Exists = true
-	status.SizeBytes = info.Size()
-	status.ModTime = info.ModTime()
-	file, err := os.Open(absPath)
-	if err != nil {
-		status.UnavailableReason = "could not open Pi session file: " + err.Error()
-		return status, warnings
-	}
-	defer file.Close()
-	parsed, parseWarnings := parsePiSessionJSONL(file)
-	warnings = append(warnings, parseWarnings...)
-	status.EntriesScanned = parsed.EntriesScanned
-	status.MalformedLines = parsed.MalformedLines
-	status.LastEvent = parsed.LastEvent
-	status.LastTurnActivity = parsed.LastTurnActivity
-	status.LastUserPrompt = parsed.LastUserPrompt
-	status.LastAssistantMessage = parsed.LastAssistantMessage
-	status.LastTerminalAssistant = parsed.LastTerminalAssistant
-	status.LastToolActivity = parsed.LastToolActivity
-	if status.LastTurnActivity != nil && !status.LastTurnActivity.Timestamp.IsZero() {
-		status.LastActivityAgeSeconds = int64(now.Sub(status.LastTurnActivity.Timestamp).Seconds())
-	}
-	status.InferredTurnState = inferPiTurnState(status)
-	return status, warnings
 }
 
 func (s *Service) inspectWorktree(ctx context.Context, m model.Manifest) (*WorktreeStatus, []string) {
@@ -396,15 +345,15 @@ func expectedBranch(m model.Manifest) string {
 	return strings.TrimSpace(m.Checkout.Branch)
 }
 
-func deriveAgentStatus(process AgentProcessStatus, session PiSessionStatus, now time.Time, staleAfter time.Duration) (string, string) {
+func deriveAgentStatus(process AgentProcessStatus, session ConversationStatus, now time.Time, staleAfter time.Duration) (string, string) {
 	if session.UnavailableReason != "" || !session.Exists {
 		return "problem", session.UnavailableReason
 	}
 	if session.LastTurnActivity == nil {
 		if !process.Online {
-			return "problem", "Pi session has no turn activity and primary agent process is not online"
+			return "problem", "conversation has no turn activity and primary agent process is not online"
 		}
-		return "idle", "Pi session has no turn activity yet"
+		return "idle", "conversation has no turn activity yet"
 	}
 	if session.InferredTurnState == "failed" && session.LastTerminalAssistant != nil {
 		return "problem", "latest terminal assistant message ended with " + session.LastTerminalAssistant.StopReason
@@ -417,40 +366,10 @@ func deriveAgentStatus(process AgentProcessStatus, session PiSessionStatus, now 
 		age = now.Sub(session.LastTurnActivity.Timestamp)
 	}
 	if !process.Online {
-		return "problem", "latest Pi session activity is not terminal and primary agent process is not online"
+		return "problem", "latest conversation activity is not terminal and primary agent process is not online"
 	}
 	if staleAfter > 0 && age > staleAfter {
-		return "problem", fmt.Sprintf("latest Pi session activity is not terminal and is older than %s", staleAfter)
+		return "problem", fmt.Sprintf("latest conversation activity is not terminal and is older than %s", staleAfter)
 	}
-	return "busy", "latest Pi session activity is not followed by a terminal assistant answer"
-}
-
-func piLineText(line rawPiSessionLine) string {
-	content, err := line.contentBlocks()
-	if err != nil {
-		return ""
-	}
-	parts := []string{}
-	for _, block := range content {
-		if block.Type == "text" && strings.TrimSpace(block.Text) != "" {
-			parts = append(parts, strings.TrimSpace(block.Text))
-		}
-	}
-	return strings.Join(parts, "\n")
-}
-
-func inferPiTurnState(status PiSessionStatus) string {
-	if status.LastTurnActivity == nil {
-		return "idle"
-	}
-	if status.LastTerminalAssistant != nil {
-		lastTerminal := status.LastTerminalAssistant.Timestamp
-		if (status.LastUserPrompt == nil || !status.LastUserPrompt.Timestamp.After(lastTerminal)) && (status.LastToolActivity == nil || !status.LastToolActivity.Timestamp.After(lastTerminal)) {
-			if status.LastTerminalAssistant.Failed {
-				return "failed"
-			}
-			return "idle"
-		}
-	}
-	return "incomplete"
+	return "busy", "latest conversation activity is not followed by a terminal assistant answer"
 }

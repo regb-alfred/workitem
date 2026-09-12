@@ -46,7 +46,7 @@ var helpDocs = map[string]helpDoc{
 	"daemon doctor": {
 		Summary:     "Validate the running coordinator and native sources",
 		Usage:       []string{"wi daemon doctor"},
-		Description: []string{"Checks connectivity, schema metadata, and the latest native Pi session import warnings."},
+		Description: []string{"Checks connectivity, schema metadata, and the latest native Conversation import warnings."},
 	},
 	"daemon stop": {
 		Summary:     "Stop a running coordinator",
@@ -79,15 +79,16 @@ var helpDocs = map[string]helpDoc{
 		Summary: "Create a durable work item",
 		Usage:   []string{"wi new [options] <title>"},
 		Description: []string{
-			"Normally creates a work item in backlog. Durable metadata and DESCRIPTION.md are written immediately; no terminal session, Pi conversation, runtime, or composed use case is started. Ordinary items begin with an absent managed-slot checkout; --home records a borrowed primary-checkout claim without creating or modifying that checkout. Without --base, the immutable created-from commit is resolved from the local default branch; no fetch occurs. If no local default can be determined, current HEAD is used with a warning.",
-			"With --prompt, the prompt is persisted as DESCRIPTION.md, the item moves to working, and an unattached agent receives it through runtime control. TUI mode is the default: it creates the normal tmux runtime for later entry but does not switch or attach the caller. Use --agent-mode rpc for an explicitly headless runtime. If startup or delivery fails, the command reports the durable partial outcome instead of deleting the item.",
+			"Normally creates a work item in backlog. Durable metadata and DESCRIPTION.md are written immediately; no terminal session, conversation, runtime, or composed use case is started. Ordinary items begin with an absent managed-slot checkout; --home records a borrowed primary-checkout claim without creating or modifying that checkout. Without --base, the immutable created-from commit is resolved from the local default branch; no fetch occurs. If no local default can be determined, current HEAD is used with a warning.",
+			"With --prompt, the prompt is persisted as DESCRIPTION.md, the item moves to working, and an unattached agent receives it through runtime control. TUI mode is the default: it creates the normal tmux runtime for later entry but does not switch or attach the caller. Use --agent-mode headless for an explicitly headless runtime. If startup or delivery fails, the command reports the durable partial outcome instead of deleting the item.",
 			"Use --desc-file for a backlog item's self-contained multiline description. Labels are repeatable and augment defaults from user config, <repository>/.config/wi.toml, and WI_ITEM_DEFAULT_LABELS; use --no-default-labels to opt out. Deep work is a built-in attribute, not a label.",
 			"A sandbox may set WI_AGENT_DAEMON_SOCKET to the daemon's separately mounted agent endpoint. That endpoint preserves current Git working-directory resolution but permits only absent managed-slot backlog creation; --home and --prompt are rejected.",
 		},
 		Options: []helpOption{
 			{"--desc-file <path>", "Read DESCRIPTION.md content from a file."},
 			{"--prompt <text>", "Persist the text as DESCRIPTION.md and immediately start an unattached agent with it."},
-			{"--agent-mode <mode>", "With --prompt, start tui (default) or rpc."},
+			{"--agent <name>", "Select a configured agent definition; default is default."},
+			{"--agent-mode <mode>", "With --prompt, start tui (default) or headless."},
 			{"--slug <slug>", "Set the initial active slug; must be unique."},
 			{"--label <label>", "Add a label after inherited defaults; repeatable."},
 			{"--no-default-labels", "Do not inherit user or repository default labels."},
@@ -100,7 +101,7 @@ var helpDocs = map[string]helpDoc{
 		Examples: []string{
 			`wi new --label follow-up --desc-file handoff.md "Investigate refresh race"`,
 			`wi new --prompt "Investigate the race, add a regression test, and report findings." "Investigate refresh race"`,
-			`wi new --agent-mode rpc --prompt "Run the audit and report findings." "Audit dependencies"`,
+			`wi new --agent-mode headless --prompt "Run the audit and report findings." "Audit dependencies"`,
 			`wi new --deep --repo ../api "Redesign authentication"`,
 			`wi new --home "Mainline maintenance"`,
 		},
@@ -166,7 +167,7 @@ var helpDocs = map[string]helpDoc{
 	"delete": {
 		Summary:     "Irreversibly delete archived work-item case files",
 		Usage:       []string{"wi delete --yes [--item <selector>] [item]", "wi delete --archived --yes"},
-		Description: []string{"Deletes the complete work-item case file, including its description and Pi conversations. Deletion requires archived state and refuses live agent runtimes, tmux terminals, or materialized checkouts. --archived validates every archived item before deleting any of them."},
+		Description: []string{"Deletes the complete work-item case file, including its description and conversations. Deletion requires archived state and refuses live agent runtimes, tmux terminals, or materialized checkouts. --archived validates every archived item before deleting any of them."},
 		Options: []helpOption{
 			{"--item <selector>", "Select one archived item explicitly."},
 			{"--archived", "Delete all archived items after validating the complete set."},
@@ -183,7 +184,7 @@ var helpDocs = map[string]helpDoc{
 	"attention activity": {
 		Summary:     "Show prompt, completion, and defer timestamps",
 		Usage:       []string{"wi attention activity [--item <selector>] [item]"},
-		Description: []string{"Shows the latest facts used to rank attention. Timestamps are derived from Pi JSONL and the work-item event log."},
+		Description: []string{"Shows the latest facts used to rank attention. Timestamps are derived from native conversation history and the work-item event log."},
 		Options:     []helpOption{{"--item <selector>", "Select an item explicitly."}},
 	},
 	"attention defer": {
@@ -223,23 +224,24 @@ var helpDocs = map[string]helpDoc{
 	"start": {
 		Summary: "Start backlog work, optionally creating a minimal item",
 		Usage: []string{
-			"wi start [--agent-mode <tui|rpc>] [--force] <slug>",
-			"wi start --new [--home] [--no-default-labels] [--agent-mode <tui|rpc>] [--force] <title>",
+			"wi start [--agent-mode <tui|headless>] [--force] <slug>",
+			"wi start --new [--home] [--no-default-labels] [--agent-mode <tui|headless>] [--force] <title>",
 		},
 		Description: []string{
 			"Without --new, resolves an exact active slug or one unambiguous active-slug substring. Exact matches take precedence; ambiguous substrings fail with candidate IDs and slugs. IDs, title keywords, implicit current-item selection, and --item are not accepted.",
 			"With --new, creates a minimal backlog item from the supplied title, assigns its slug normally, then starts it. If startup fails after creation, the item is retained and identified in the error.",
-			"Starting transitions backlog -> working, enforces deep-work capacity, materializes the worktree, and ensures the selected primary runtime. TUI mode attaches terminal access; RPC mode remains headless. JSON never attaches.",
+			"Starting transitions backlog -> working, enforces deep-work capacity, materializes the worktree, and ensures the selected primary runtime. TUI mode attaches terminal access; Headless mode remains headless. JSON never attaches.",
 		},
 		Options: []helpOption{
 			{"--new", "Create a minimal item from the supplied title before starting."},
 			{"--home", "With --new, borrow the repository's primary default-branch checkout."},
 			{"--no-default-labels", "With --new, do not inherit default labels."},
-			{"--agent-mode <tui|rpc>", "Start native TUI (default) or headless RPC mode."},
+			{"--agent <name>", "With --new, select a configured agent definition."},
+			{"--agent-mode <tui|headless>", "Start native TUI (default) or headless Headless mode."},
 			{"--force", "Override the deep-work active limit."},
 		},
 		Environment: []helpOption{{"WI_ITEM_DEFAULT_LABELS", "Comma-separated defaults applied when --new creates the item."}},
-		Examples:    []string{`wi start auth-race`, `wi start --new "Fix typo"`, `wi start --new --home "Mainline maintenance"`, `wi start --new --agent-mode rpc "Audit dependencies"`},
+		Examples:    []string{`wi start auth-race`, `wi start --new "Fix typo"`, `wi start --new --home "Mainline maintenance"`, `wi start --new --agent-mode headless "Audit dependencies"`},
 	},
 	"switch": {
 		Summary: "Select and switch to a work item",
@@ -280,7 +282,7 @@ var helpDocs = map[string]helpDoc{
 	"workspace ensure": {
 		Summary:     "Materialize the repository worktree",
 		Usage:       []string{"wi workspace ensure [--item <selector>] [item]"},
-		Description: []string{"Ensures only the checkout/worktree. It does not create tmux or a Pi conversation. Lifecycle state is unchanged."},
+		Description: []string{"Ensures only the checkout/worktree. It does not create tmux or a conversation. Lifecycle state is unchanged."},
 		Options:     []helpOption{{"--item <selector>", "Select an item explicitly."}},
 	},
 	"workspace release": {
@@ -299,7 +301,7 @@ var helpDocs = map[string]helpDoc{
 	"terminal": {
 		Summary:     "Manage optional terminal access",
 		Usage:       []string{"wi terminal <status|ensure|enter|close> [options] [item]"},
-		Description: []string{"Low-level tmux adapter plumbing operates over an existing worktree. It never creates a Pi conversation or changes lifecycle state."},
+		Description: []string{"Low-level tmux adapter plumbing operates over an existing worktree. It never creates a conversation or changes lifecycle state."},
 		SeeAlso:     []string{"terminal status", "terminal ensure", "terminal enter", "terminal close", "workspace"},
 	},
 	"terminal status": {Summary: "Inspect optional terminal access", Usage: []string{"wi terminal status [--item <selector>] [item]"}, Options: []helpOption{{"--item <selector>", "Select an item explicitly."}}},
@@ -326,11 +328,11 @@ var helpDocs = map[string]helpDoc{
 	},
 	"resume": {
 		Summary:     "Move waiting work to working and resume its agent",
-		Usage:       []string{"wi resume [--item <selector>] [--agent-mode <tui|rpc>] [item]"},
+		Usage:       []string{"wi resume [--item <selector>] [--agent-mode <tui|headless>] [item]"},
 		Description: []string{"Transitions waiting -> working and ensures the selected primary-agent runtime like wi start. Backlog items must use wi start. JSON output never attaches."},
 		Options: []helpOption{
 			{"--item <selector>", "Select an item explicitly."},
-			{"--agent-mode <tui|rpc>", "Start native TUI (default) or headless RPC mode."},
+			{"--agent-mode <tui|headless>", "Start native TUI (default) or headless Headless mode."},
 		},
 		Examples: []string{`wi resume`, `wi resume --item auth`},
 	},
@@ -398,7 +400,7 @@ var helpDocs = map[string]helpDoc{
 	"agent control": {
 		Summary:     "Submit a low-level command to the owning agent runtime",
 		Usage:       []string{"wi agent control send [--follow-up] [--item <selector>] [--actor <name>] [--stdin | --file <path> | <message...>]", "wi agent control <abort|shutdown> [--item <selector>] [--actor <name>]"},
-		Description: []string{"Submits directly to runtime control without consulting derived busy/idle status. Send defaults to steering delivery at Pi's next turn boundary; --follow-up waits until the current run settles."},
+		Description: []string{"Submits directly to runtime control without consulting derived busy/idle status. Send defaults to steering delivery at the agent's next turn boundary; --follow-up waits until the current run settles."},
 		Options: []helpOption{
 			{"--item <selector>", "Select an item explicitly."},
 			{"--actor <name>", "Record the control source/actor."},
@@ -427,7 +429,7 @@ var helpDocs = map[string]helpDoc{
 	"agent runtime": {
 		Summary:     "Inspect or ensure the primary agent runtime",
 		Usage:       []string{"wi agent runtime <status|ensure|stop> [options] [item]"},
-		Description: []string{"A work item has one durable primary conversation and at most one active runtime owner. TUI uses a thin extension adapter; RPC uses Pi's native stdin/stdout protocol; both hold the same conversation lock."},
+		Description: []string{"A work item has one durable primary conversation and at most one active runtime owner. Drivers advertise TUI and headless capabilities; every runtime holds the same primary-conversation lock."},
 		SeeAlso:     []string{"agent runtime status", "agent runtime ensure", "agent runtime stop", "agent monitor"},
 	},
 	"agent runtime status": {
@@ -436,12 +438,12 @@ var helpDocs = map[string]helpDoc{
 		Options: []helpOption{{"--item <selector>", "Select an item explicitly."}},
 	},
 	"agent runtime ensure": {
-		Summary:     "Ensure a TUI or headless RPC runtime",
-		Usage:       []string{"wi agent runtime ensure --mode <tui|rpc> [--item <selector>] [item]"},
-		Description: []string{"TUI mode runs native Pi inside tmux. RPC mode runs headlessly without creating a tmux session. A different live mode must be stopped before handoff."},
+		Summary:     "Ensure a TUI or headless headless runtime",
+		Usage:       []string{"wi agent runtime ensure --mode <tui|headless> [--item <selector>] [item]"},
+		Description: []string{"TUI mode runs native inside tmux. Headless mode runs headlessly without creating a tmux session. A different live mode must be stopped before handoff."},
 		Options: []helpOption{
 			{"--item <selector>", "Select an item explicitly."},
-			{"--mode <tui|rpc>", "Select native TUI or headless RPC mode."},
+			{"--mode <tui|headless>", "Select native TUI or headless Headless mode."},
 		},
 	},
 	"agent runtime stop": {

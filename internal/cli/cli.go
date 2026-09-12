@@ -20,7 +20,6 @@ import (
 	"github.com/regb/workitem/internal/direnv"
 	"github.com/regb/workitem/internal/git"
 	"github.com/regb/workitem/internal/model"
-	"github.com/regb/workitem/internal/pi"
 	"github.com/regb/workitem/internal/store"
 	"github.com/regb/workitem/internal/tmux"
 	"github.com/regb/workitem/internal/xdg"
@@ -84,6 +83,8 @@ func Main(ctx context.Context, args []string) int {
 	application.AgentStatusConfig = cfgFile.AgentStatus
 	application.AttentionConfig = cfgFile.Attention
 	application.DirenvConfig = cfgFile.Direnv
+	application.AgentsConfig = cfgFile.Agents
+	application.DriversConfig = cfgFile.Drivers
 	_, jsonOut := extractGlobals(args)
 	if !jsonOut && inputIsTerminal(os.Stdin) {
 		application.ApproveDirenv = func(ctx context.Context, manifest model.Manifest, rcPath string) (bool, error) {
@@ -92,11 +93,14 @@ func Main(ctx context.Context, args []string) int {
 	}
 	mux := tmux.New("tmux")
 	application.Tmux = mux
-	application.Pi = pi.New("pi")
 	direnvClient := direnv.New("direnv")
 	application.Direnv = direnvClient
 	if self, err := os.Executable(); err == nil {
 		application.SelfPath = self
+		application.BundledDriverCommands["pi"] = app.BundledDriverCommand{Path: self, Args: []string{"internal-driver", "pi"}}
+	}
+	for driverName, client := range configuredDriverClients(cfgFile, application.SelfPath, env) {
+		application.ConversationBackends[driverName] = client
 	}
 	cwd, _ := os.Getwd()
 	if commandUsesCLIProjectEnvironment(args) {
@@ -310,22 +314,22 @@ func printTransition(w io.Writer, res app.StateTransitionResult) {
 
 func runAgentExec(ctx context.Context, args []string, cfg Config) error {
 	fs := newFlagSet("agent exec", cfg.Stderr)
-	var itemID, sessionID, runtimeID, modeValue string
+	var itemID, conversationID, runtimeID, modeValue string
 	fs.StringVar(&itemID, "item", "", "work-item ID")
-	fs.StringVar(&sessionID, "session", "", "Pi session ID")
+	fs.StringVar(&conversationID, "conversation", "", "primary conversation ID")
 	fs.StringVar(&runtimeID, "runtime", "", "agent runtime ID")
 	fs.StringVar(&modeValue, "mode", "", "agent runtime mode")
 	if err := fs.Parse(args); err != nil {
 		return usageErr{err}
 	}
-	if itemID == "" || sessionID == "" || runtimeID == "" || modeValue == "" {
-		return usageErr{errors.New("usage: wi agent exec --item <id> --session <session-id> --runtime <runtime-id> --mode <tui|rpc>")}
+	if itemID == "" || conversationID == "" || runtimeID == "" || modeValue == "" {
+		return usageErr{errors.New("usage: wi agent exec --item <id> --conversation <conversation-id> --runtime <runtime-id> --mode <tui|headless>")}
 	}
 	mode, err := agent.ParseMode(modeValue)
 	if err != nil {
 		return usageErr{err}
 	}
-	return cfg.App.AgentExec(ctx, itemID, sessionID, runtimeID, mode)
+	return cfg.App.AgentExec(ctx, itemID, conversationID, runtimeID, mode)
 }
 
 func versionCommandRequested(args []string) bool {
@@ -431,7 +435,7 @@ func inputIsTerminal(input *os.File) bool {
 }
 
 func promptDirenvApproval(input io.Reader, output io.Writer, manifest model.Manifest, rcPath string) (bool, error) {
-	fmt.Fprintf(output, "Worktree .envrc is not trusted: %s\nAllow it before starting the Pi session for %s? [y/N] ", rcPath, manifest.Slug)
+	fmt.Fprintf(output, "Worktree .envrc is not trusted: %s\nAllow it before starting the Conversation for %s? [y/N] ", rcPath, manifest.Slug)
 	line, err := bufio.NewReader(input).ReadString('\n')
 	if err != nil && !errors.Is(err, io.EOF) {
 		return false, err

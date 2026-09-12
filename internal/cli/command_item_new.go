@@ -18,11 +18,12 @@ import (
 func runNew(ctx context.Context, args []string, cfg Config, jsonOut bool) error {
 	fs := newFlagSet("new", cfg.Stderr)
 	var labels repeatFlag
-	var descFile, prompt, slug, base, repoPath, agentMode string
+	var descFile, prompt, slug, base, repoPath, agentMode, agentName string
 	var deep, home, noDefaultLabels bool
 	fs.StringVar(&descFile, "desc-file", "", "read work-item description from file")
 	fs.StringVar(&prompt, "prompt", "", "use this description and start an agent immediately without attaching")
-	fs.StringVar(&agentMode, "agent-mode", "tui", "with --prompt, runtime mode: tui or rpc")
+	fs.StringVar(&agentMode, "agent-mode", "tui", "with --prompt, runtime mode: tui or headless")
+	fs.StringVar(&agentName, "agent", "default", "configured agent definition")
 	fs.StringVar(&slug, "slug", "", "explicit active slug for the new work item")
 	fs.Var(&labels, "label", "label to add (repeatable)")
 	fs.BoolVar(&noDefaultLabels, "no-default-labels", false, "do not inherit user or repository default labels")
@@ -80,7 +81,7 @@ func runNew(ctx context.Context, args []string, cfg Config, jsonOut bool) error 
 	}
 	opts := app.NewWorkItemOptions{
 		Title: title, Slug: slug, Description: description, Labels: labels,
-		NoDefaultLabels: noDefaultLabels, DeepWork: deep, Base: base, Home: home, CWD: newCWD, Env: cfg.Env,
+		NoDefaultLabels: noDefaultLabels, DeepWork: deep, Base: base, Home: home, CWD: newCWD, Env: cfg.Env, Agent: agentName,
 	}
 	if promptSet {
 		mode, err := agent.ParseMode(agentMode)
@@ -157,8 +158,8 @@ func printNewWorkItemResult(cfg Config, res app.NewWorkItemResult) {
 	if res.Manifest.Checkout.Path != nil {
 		fmt.Fprintf(cfg.Stdout, "checkout path: %s\n", *res.Manifest.Checkout.Path)
 	}
-	if res.Manifest.RootPiSession != nil {
-		fmt.Fprintf(cfg.Stdout, "root Pi session: %s %s\n", res.Manifest.RootPiSession.ID, res.Manifest.RootPiSession.Path)
+	if res.Manifest.PrimaryConversation != nil {
+		fmt.Fprintf(cfg.Stdout, "primary conversation: %s %s\n", res.Manifest.PrimaryConversation.ID, res.Manifest.PrimaryConversation.NativeLocator())
 	}
 	for _, warning := range res.Warnings {
 		fmt.Fprintf(cfg.Stdout, "warning: %s\n", warning)

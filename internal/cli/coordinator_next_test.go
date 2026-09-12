@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	pidriver "github.com/regb/workitem/internal/agentdriver/pi"
 	"github.com/regb/workitem/internal/app"
 	"github.com/regb/workitem/internal/coordinator"
 	"github.com/regb/workitem/internal/model"
@@ -28,11 +29,11 @@ func TestCoordinatorWaitAndQueueReturnsAtomicPostTransitionSnapshot(t *testing.T
 		manifest := model.NewManifest(id, "atomic-"+string(rune('a'+index)), "Atomic", nil, false, now.Add(time.Duration(index)*time.Second), model.Repository{}, model.Checkout{})
 		manifest.State = model.StateWorking
 		sessionID := "session-" + string(rune('a'+index))
-		manifest.RootPiSession = &model.PiSession{ID: sessionID, Path: filepath.Join("sessions", "pi", sessionID+".jsonl")}
+		manifest.PrimaryConversation = &model.Conversation{Driver: "pi", ID: sessionID, Locator: filepath.Join("sessions", "pi", sessionID+".jsonl")}
 		if err := native.CreateItem(context.Background(), manifest); err != nil {
 			t.Fatal(err)
 		}
-		path := filepath.Join(native.ItemDir(id), manifest.RootPiSession.Path)
+		path := filepath.Join(native.ItemDir(id), manifest.PrimaryConversation.NativeLocator())
 		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 			t.Fatal(err)
 		}
@@ -76,7 +77,17 @@ func TestCoordinatorWaitAndQueueReturnsAtomicPostTransitionSnapshot(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	server, err := coordinator.NewServer(root, socket)
+	server, err := coordinator.NewServer(root, socket, coordinator.ConversationDecoders{"pi": func(_ context.Context, _ model.Conversation, records []coordinator.ConversationRecord) ([]coordinator.ConversationEventFact, []bool, error) {
+		facts, decoded := make([]coordinator.ConversationEventFact, 0, len(records)), make([]bool, len(records))
+		for i, record := range records {
+			fact, ok := pidriver.SummarizeConversationFact(record.Line, record.Raw)
+			decoded[i] = ok
+			if ok {
+				facts = append(facts, coordinator.ConversationEventFact{Line: fact.Line, Type: fact.Type, Role: fact.Role, Timestamp: fact.Timestamp, StopReason: fact.StopReason, ContentTypes: fact.ContentTypes, Terminal: fact.Terminal, Failed: fact.Failed})
+			}
+		}
+		return facts, decoded, nil
+	}})
 	if err != nil {
 		t.Fatal(err)
 	}

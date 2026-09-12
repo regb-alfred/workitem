@@ -5,9 +5,9 @@ import (
 	"fmt"
 )
 
-type rpcRuntimeMode struct{}
+type headlessRuntimeMode struct{}
 
-func (rpcRuntimeMode) Args(sessionPath, bridgePath string) ([]string, error) {
+func (headlessRuntimeMode) Args(sessionPath, bridgePath string) ([]string, error) {
 	args, err := commonArgs(sessionPath, "")
 	if err != nil {
 		return nil, err
@@ -15,7 +15,7 @@ func (rpcRuntimeMode) Args(sessionPath, bridgePath string) ([]string, error) {
 	return append(args, "--mode", "rpc", "--session", sessionPath), nil
 }
 
-func (rpcRuntimeMode) Run(ctx context.Context, runner Runner, path string, args []string, spec ExecSpec, env []string) error {
+func (headlessRuntimeMode) Run(ctx context.Context, runner Runner, path string, args []string, spec ExecSpec, env []string) error {
 	headless, ok := runner.(HeadlessRunner)
 	if !ok {
 		return fmt.Errorf("runner does not support Pi RPC mode")

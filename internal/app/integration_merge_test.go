@@ -247,7 +247,7 @@ func TestMergeWorkItemRecordsManagedTargetEvent(t *testing.T) {
 	runMergeGit(t, repo, "add", "README.md")
 	runMergeGit(t, repo, "commit", "-m", "initial")
 	st := store.New(t.TempDir())
-	application := app.New(st, gitpkg.New("git"))
+	application := newTestApp(st, gitpkg.New("git"))
 	application.Tmux = &fakeTmux{}
 	application.Clock = fixedClock{testutil.Time()}
 	ids := []string{testutil.ID(t, 95), testutil.ID(t, 96), testutil.ID(t, 97), testutil.ID(t, 98)}
@@ -308,7 +308,7 @@ func setupMergeWorkItem(t *testing.T) (*app.App, string, string, string) {
 	runMergeGit(t, repo, "add", "README.md")
 	runMergeGit(t, repo, "commit", "-m", "initial")
 	st := store.New(t.TempDir())
-	application := app.New(st, gitpkg.New("git"))
+	application := newTestApp(st, gitpkg.New("git"))
 	application.Tmux = &fakeTmux{}
 	application.Clock = fixedClock{testutil.Time()}
 	ids := []string{testutil.ID(t, 91), testutil.ID(t, 92)}

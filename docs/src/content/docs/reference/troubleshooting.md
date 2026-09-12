@@ -62,11 +62,11 @@ tmux -V
 fzf --version
 ```
 
-TUI mode requires Pi and tmux. The selector-less `wi switch` picker also requires fzf. Use an explicit item to bypass the picker, or RPC mode to avoid tmux:
+TUI mode requires Pi and tmux. The selector-less `wi switch` picker also requires fzf. Use an explicit item to bypass the picker, or Headless mode to avoid tmux:
 
 ```bash
 wi switch item-slug
-wi start --agent-mode rpc item-slug
+wi start --agent-mode headless item-slug
 ```
 
 ## The agent did not receive the description
@@ -99,9 +99,9 @@ wi list
 
 Busy, waiting, backlog, archived, label-filtered, and problem items are outside the queue. Resume waiting work or repair the reported problem rather than forcing navigation.
 
-## TUI and RPC mode will not switch
+## TUI and Headless mode will not switch
 
-One durable conversation can have only one active runtime owner. Pi cannot attach its TUI to a live RPC process.
+One durable conversation can have only one active runtime owner. Pi cannot attach its TUI to a live headless process.
 
 ```bash
 wi agent runtime stop ITEM
@@ -113,7 +113,7 @@ Wait until the runtime reports offline, then start the other mode:
 ```bash
 wi switch ITEM
 # or
-wi agent runtime ensure --mode rpc ITEM
+wi agent runtime ensure --mode headless ITEM
 ```
 
 Use `--force` to abort a busy runtime before shutdown.

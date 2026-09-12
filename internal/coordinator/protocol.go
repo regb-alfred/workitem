@@ -30,7 +30,7 @@ const (
 	MethodStatus            = "status"
 	MethodShutdown          = "shutdown"
 	MethodListManifests     = "list_manifests"
-	MethodPiSession         = "pi_session"
+	MethodConversation      = "conversation"
 	MethodAgentObservation  = "agent_observation"
 	MethodCanonicalManifest = "canonical_manifest"
 	MethodManifestCommand   = "manifest_command"
@@ -105,10 +105,10 @@ type ItemResourcesResult struct {
 	Terminal *model.TerminalRuntime `json:"terminal,omitempty"`
 }
 
-type PiSessionProjectionResult struct {
-	Projection ProjectionMetadata `json:"projection"`
-	Found      bool               `json:"found"`
-	Session    PiSessionIndex     `json:"session"`
+type ConversationProjectionResult struct {
+	Projection   ProjectionMetadata `json:"projection"`
+	Found        bool               `json:"found"`
+	Conversation ConversationIndex  `json:"conversation"`
 }
 
 type ManifestProjectionResult struct {
@@ -117,8 +117,8 @@ type ManifestProjectionResult struct {
 }
 
 type ActivityBarrierResult struct {
-	Projection ProjectionMetadata `json:"projection"`
-	PiImport   PiImportReport     `json:"pi_import"`
+	Projection         ProjectionMetadata       `json:"projection"`
+	ConversationImport ConversationImportReport `json:"conversation_import"`
 }
 
 type ActionabilitySnapshotRequest struct {
@@ -127,23 +127,23 @@ type ActionabilitySnapshotRequest struct {
 }
 
 type ActionabilitySnapshotResult struct {
-	Projection ProjectionMetadata       `json:"projection"`
-	PiImport   PiImportReport           `json:"pi_import"`
-	Queue      ActionabilityQueueResult `json:"queue"`
-	Selection  ActionabilitySelection   `json:"selection"`
+	Projection         ProjectionMetadata       `json:"projection"`
+	ConversationImport ConversationImportReport `json:"conversation_import"`
+	Queue              ActionabilityQueueResult `json:"queue"`
+	Selection          ActionabilitySelection   `json:"selection"`
 }
 
 type Status struct {
-	ProtocolVersion int            `json:"protocol_version"`
-	BuildIdentity   string         `json:"build_identity"`
-	PID             int            `json:"pid"`
-	StartedAt       string         `json:"started_at"`
-	DataRoot        string         `json:"data_root"`
-	SocketPath      string         `json:"socket_path"`
-	AgentSocketPath string         `json:"agent_socket_path,omitempty"`
-	Access          string         `json:"access"`
-	Database        DatabaseStatus `json:"database"`
-	PiImport        PiImportReport `json:"pi_import"`
+	ProtocolVersion    int                      `json:"protocol_version"`
+	BuildIdentity      string                   `json:"build_identity"`
+	PID                int                      `json:"pid"`
+	StartedAt          string                   `json:"started_at"`
+	DataRoot           string                   `json:"data_root"`
+	SocketPath         string                   `json:"socket_path"`
+	AgentSocketPath    string                   `json:"agent_socket_path,omitempty"`
+	Access             string                   `json:"access"`
+	Database           DatabaseStatus           `json:"database"`
+	ConversationImport ConversationImportReport `json:"conversation_import"`
 }
 
 func SocketPath(runtimeDir, dataRoot string) (string, error) {

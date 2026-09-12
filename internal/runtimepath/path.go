@@ -16,6 +16,11 @@ func ControlSocket(itemID, runtimeID string) string {
 	return path.Join(ControlItemDir(itemID), hex.EncodeToString(digest[:8])+".sock")
 }
 
+func EventSocket(itemID, runtimeID string) string {
+	digest := sha256.Sum256([]byte(runtimeID))
+	return path.Join(ControlItemDir(itemID), hex.EncodeToString(digest[:8])+"-events.sock")
+}
+
 func DiagnosticLog(itemID, runtimeID string) string {
 	return path.Join("items", itemID, "runtimes", runtimeID, "runtime.log")
 }

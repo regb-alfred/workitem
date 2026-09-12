@@ -19,6 +19,7 @@ type NewWorkItemOptions struct {
 	Home            bool
 	CWD             string
 	Env             map[string]string
+	Agent           string
 }
 
 type NewWorkItemResult struct {
@@ -38,8 +39,12 @@ func (a *App) PrepareNewWorkItem(ctx context.Context, opts NewWorkItemOptions) (
 	if a == nil || a.Store == nil || a.Git == nil {
 		return PreparedNewWorkItem{}, fmt.Errorf("app is not fully configured")
 	}
+	agentName, err := a.resolveAgentName(opts.Agent)
+	if err != nil {
+		return PreparedNewWorkItem{}, err
+	}
 	res, err := a.itemService().NewWorkItem(ctx, itemcore.NewOptions{
-		Title: opts.Title, Slug: opts.Slug, Description: opts.Description,
+		Title: opts.Title, Slug: opts.Slug, Description: opts.Description, Agent: agentName,
 		Labels: opts.Labels, NoDefaultLabels: opts.NoDefaultLabels,
 		DeepWork: opts.DeepWork, Base: opts.Base, Home: opts.Home,
 		CWD: opts.CWD, Env: opts.Env, PrepareOnly: true,
@@ -56,8 +61,12 @@ func (a *App) NewWorkItem(ctx context.Context, opts NewWorkItemOptions) (NewWork
 	if a == nil || a.Store == nil || a.Git == nil {
 		return NewWorkItemResult{}, fmt.Errorf("app is not fully configured")
 	}
+	agentName, err := a.resolveAgentName(opts.Agent)
+	if err != nil {
+		return NewWorkItemResult{}, err
+	}
 	res, err := a.itemService().NewWorkItem(ctx, itemcore.NewOptions{
-		Title: opts.Title, Slug: opts.Slug, Description: opts.Description,
+		Title: opts.Title, Slug: opts.Slug, Description: opts.Description, Agent: agentName,
 		Labels: opts.Labels, NoDefaultLabels: opts.NoDefaultLabels,
 		DeepWork: opts.DeepWork, Base: opts.Base, Home: opts.Home,
 		CWD: opts.CWD, Env: opts.Env,
@@ -66,4 +75,21 @@ func (a *App) NewWorkItem(ctx context.Context, opts NewWorkItemOptions) (NewWork
 		return NewWorkItemResult{}, err
 	}
 	return NewWorkItemResult{Manifest: res.Manifest, ItemDir: res.ItemDir, Warnings: res.Warnings}, nil
+}
+
+func (a *App) resolveAgentName(value string) (string, error) {
+	if value == "" {
+		value = "default"
+	}
+	definition, ok := a.AgentsConfig[value]
+	if !ok {
+		return "", fmt.Errorf("agent definition %q is not configured", value)
+	}
+	if definition.Driver == "" {
+		return "", fmt.Errorf("agent definition %q has no driver", value)
+	}
+	if _, ok := a.DriversConfig[definition.Driver]; !ok {
+		return "", fmt.Errorf("agent definition %q uses unconfigured driver %q", value, definition.Driver)
+	}
+	return value, nil
 }

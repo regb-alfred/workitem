@@ -34,6 +34,18 @@ auto_trust_repositories = ["/home/me/src/trusted-project"]
 busy = "agent"
 idle = "review"
 problem = "problem"
+
+[drivers.pi.defaults]
+executable = "/home/me/bin/pi"
+
+[agents.default]
+driver = "pi"
+
+[agents.web-search]
+driver = "pi"
+
+[agents.web-search.config]
+extensions = ["/home/me/tools/web-search.ts"]
 ```
 
 ## Deep-work capacity
@@ -75,6 +87,19 @@ Interactive runtime startup asks before allowing an untrusted `.envrc`. The user
 For commands that consume project-scoped CLI settings, `wi` also reads `WI_LIST_LABELS` and `WI_ITEM_DEFAULT_LABELS` from an already allowed `.envrc` in the current directory. Explicit caller values win. Other values from `.envrc` are not imported into CLI configuration.
 
 Repository configuration cannot grant execution trust. This prevents a checked-in file from approving its own commands.
+
+## Coding agents and drivers
+
+Every item records an agent definition name. `default` is selected when `wi new` or `wi start --new` does not receive `--agent`; without configuration it uses the packaged `pi` driver.
+
+`[agents.<name>]` selects a registered driver. The nested `config` table belongs to that driver and is validated by it. The Pi driver accepts `executable` and `extensions`. `[drivers.<name>.defaults]` provides settings shared by every agent using that driver; agent configuration overrides those defaults.
+
+```bash
+wi new --agent web-search "Research upstream behavior"
+wi start --new --agent web-search "Investigate rendering"
+```
+
+External driver programs use wi's versioned bootstrap protocol. The standard Pi driver runs as the separate `wi internal-driver pi` process from the installed `wi` binary, so it is always present and has the same build version. A configured `drivers.<name>.command` selects a trusted external driver executable; repository configuration cannot register drivers or agent definitions.
 
 ## Environment variables
 

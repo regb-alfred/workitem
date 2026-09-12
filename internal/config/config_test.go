@@ -38,6 +38,28 @@ func TestLoadRejectsRelativeDirenvAutoTrustRepository(t *testing.T) {
 	}
 }
 
+func TestLoadAgentDefinitionsAndDriverDefaults(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.toml")
+	writeFile(t, path, "[drivers.pi.defaults]\nexecutable = \"/opt/pi/bin/pi\"\n\n[agents.web-search]\ndriver = \"pi\"\n\n[agents.web-search.config]\nextensions = [\"/opt/pi/web-search.ts\"]\n")
+	cfg, warnings, err := config.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(warnings) != 0 {
+		t.Fatalf("warnings=%v", warnings)
+	}
+	if cfg.Agents["default"].Driver != "pi" || cfg.Agents["web-search"].Driver != "pi" {
+		t.Fatalf("agents=%+v", cfg.Agents)
+	}
+	if cfg.Drivers["pi"].Defaults["executable"] != "/opt/pi/bin/pi" {
+		t.Fatalf("drivers=%+v", cfg.Drivers)
+	}
+	extensions, ok := cfg.Agents["web-search"].Config["extensions"].([]string)
+	if !ok || len(extensions) != 1 || extensions[0] != "/opt/pi/web-search.ts" {
+		t.Fatalf("extensions=%#v", cfg.Agents["web-search"].Config["extensions"])
+	}
+}
+
 func TestLoadDeepWorkListAndAgentStatusConfig(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.toml")
 	writeFile(t, path, "[deep_work]\nmax_active = 3\n\n[item.defaults]\nlabels = [\"personal\", \"Go Work\"]\n\n[list]\nrepository_folders = 3\nlabels = [\"+networking\", \"-personal\",]\n\n[attention]\npriority = \"recent-request\"\n\n[agent_status.markers]\nbusy = \"🤖\"\nidle = \"💬\"\nproblem = \"⚠️\"\n")

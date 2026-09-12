@@ -12,7 +12,9 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/regb/workitem/internal/config"
 	"github.com/regb/workitem/internal/coordinator"
+	"github.com/regb/workitem/internal/model"
 	"github.com/regb/workitem/internal/xdg"
 )
 
@@ -34,8 +36,6 @@ func ensureDaemonRunning(ctx context.Context, paths xdg.Paths, socketPath string
 		shutdownCtx, shutdownCancel := context.WithTimeout(ctx, 2*time.Second)
 		if compatibility.Kind == "build" {
 			err = client.Shutdown(shutdownCtx)
-		} else if compatibility.Kind == "protocol" && compatibility.Actual == fmt.Sprint(coordinator.ProtocolVersion-1) {
-			err = client.ShutdownProtocol(shutdownCtx, coordinator.ProtocolVersion-1)
 		} else {
 			err = fmt.Errorf("cannot automatically replace incompatible daemon: %w", compatibility)
 		}
@@ -144,7 +144,32 @@ func runDaemonMain(ctx context.Context, args []string, paths xdg.Paths, stdout, 
 		}
 		signalCtx, cancel := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 		defer cancel()
-		server, err := coordinator.NewServerWithAgentSocket(paths.DataRoot, socketPath, agentSocketPath)
+		cfgFile, _, err := config.Load(paths.ConfigFile)
+		if err != nil {
+			fmt.Fprintln(stderr, err)
+			return ExitError
+		}
+		self, _ := os.Executable()
+		decoders := coordinator.ConversationDecoders{}
+		for name, configured := range configuredDriverClients(cfgFile, self, environMap(os.Environ())) {
+			client := configured
+			decoders[name] = func(ctx context.Context, conversation model.Conversation, records []coordinator.ConversationRecord) ([]coordinator.ConversationEventFact, []bool, error) {
+				lines, lineNumbers := make([][]byte, len(records)), make([]uint64, len(records))
+				for i, record := range records {
+					lines[i], lineNumbers[i] = record.Raw, record.Line
+				}
+				facts, decoded, err := client.DecodeConversation(ctx, conversation, lineNumbers, lines)
+				if err != nil {
+					return nil, nil, err
+				}
+				converted := make([]coordinator.ConversationEventFact, len(facts))
+				for i, fact := range facts {
+					converted[i] = coordinator.ConversationEventFact{Line: fact.Line, Type: fact.Type, Role: fact.Role, Timestamp: fact.Timestamp, StopReason: fact.StopReason, ContentTypes: fact.ContentTypes, Terminal: fact.Terminal, Failed: fact.Failed}
+				}
+				return converted, decoded, nil
+			}
+		}
+		server, err := coordinator.NewServerWithAgentSocket(paths.DataRoot, socketPath, agentSocketPath, decoders)
 		if err != nil {
 			fmt.Fprintln(stderr, err)
 			return ExitError
@@ -202,12 +227,12 @@ func runDaemonMain(ctx context.Context, args []string, paths xdg.Paths, stdout, 
 		} else {
 			fmt.Fprintf(stdout, "database schema: %d\n", status.Database.SchemaVersion)
 			fmt.Fprintf(stdout, "global sequence: %d\n", status.Database.GlobalSequence)
-			fmt.Fprintf(stdout, "Pi session sources: %d files, %d entries, %d warning(s)\n", status.PiImport.FilesSeen, status.PiImport.EntriesScanned, len(status.PiImport.Warnings))
-			for _, warning := range status.PiImport.Warnings {
+			fmt.Fprintf(stdout, "Conversation sources: %d files, %d entries, %d warning(s)\n", status.ConversationImport.FilesSeen, status.ConversationImport.EntriesScanned, len(status.ConversationImport.Warnings))
+			for _, warning := range status.ConversationImport.Warnings {
 				fmt.Fprintf(stderr, "warning: %s\n", warning)
 			}
 		}
-		if len(status.PiImport.Warnings) > 0 {
+		if len(status.ConversationImport.Warnings) > 0 {
 			return ExitError
 		}
 		return ExitOK
@@ -220,15 +245,8 @@ func runDaemonMain(ctx context.Context, args []string, paths xdg.Paths, stdout, 
 		defer cancel()
 		client := &coordinator.Client{SocketPath: socketPath}
 		if err := client.Shutdown(requestCtx); err != nil {
-			var compatibility *coordinator.CompatibilityError
-			if !errors.As(err, &compatibility) || compatibility.Kind != "protocol" || compatibility.Actual != fmt.Sprint(coordinator.ProtocolVersion-1) {
-				fmt.Fprintln(stderr, err)
-				return ExitError
-			}
-			if err := client.ShutdownProtocol(requestCtx, coordinator.ProtocolVersion-1); err != nil {
-				fmt.Fprintln(stderr, err)
-				return ExitError
-			}
+			fmt.Fprintln(stderr, err)
+			return ExitError
 		}
 		if !jsonOut {
 			fmt.Fprintln(stdout, "daemon stopping")

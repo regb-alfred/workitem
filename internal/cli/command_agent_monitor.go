@@ -111,12 +111,13 @@ func coordinatorRuntimeEvents(events []coordinator.DomainEvent) []agent.RuntimeE
 	for _, event := range events {
 		var payload struct {
 			RuntimeID string `json:"runtime_id"`
+			CommandID string `json:"command_id"`
 			RequestID string `json:"request_id"`
 			Role      string `json:"role"`
 			ToolName  string `json:"tool_name"`
 		}
 		_ = json.Unmarshal(event.Payload, &payload)
-		result = append(result, agent.RuntimeEvent{ProtocolVersion: agent.RuntimeProtocolVersion, EventID: event.ID, RuntimeID: payload.RuntimeID, WorkItemID: event.ItemID, Type: event.Type, Timestamp: event.Timestamp, RequestID: payload.RequestID, Role: payload.Role, ToolName: payload.ToolName})
+		result = append(result, agent.RuntimeEvent{ProtocolVersion: agent.RuntimeProtocolVersion, EventID: event.ID, RuntimeID: payload.RuntimeID, WorkItemID: event.ItemID, Type: event.Type, Timestamp: event.Timestamp, CommandID: payload.CommandID, RequestID: payload.RequestID, Role: payload.Role, ToolName: payload.ToolName})
 	}
 	return result
 }

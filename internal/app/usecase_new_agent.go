@@ -90,7 +90,7 @@ func (a *App) waitForAgentRuntimeReady(ctx context.Context, itemID string, runti
 		if current.State == model.AgentRuntimeProblem || current.State == model.AgentRuntimeStopped {
 			return false, fmt.Errorf("agent runtime %s is %s before accepting the initial prompt", runtime.ID, current.State)
 		}
-		if _, err := os.Stat(socketPath); err == nil {
+		if _, err := os.Stat(socketPath); err == nil && current.Capabilities.Prompt {
 			return true, nil
 		}
 		return false, nil

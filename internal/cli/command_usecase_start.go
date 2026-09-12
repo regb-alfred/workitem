@@ -14,18 +14,19 @@ import (
 
 func runStart(ctx context.Context, args []string, cfg Config, jsonOut bool) error {
 	fs := newFlagSet("start", cfg.Stderr)
-	var agentMode string
+	var agentMode, agentName string
 	var force, createNew, home, noDefaultLabels bool
 	fs.BoolVar(&createNew, "new", false, "create a minimal item from the title before starting")
 	fs.BoolVar(&home, "home", false, "with --new, borrow the repository's primary default-branch checkout")
 	fs.BoolVar(&noDefaultLabels, "no-default-labels", false, "do not inherit default labels when creating with --new")
-	fs.StringVar(&agentMode, "agent-mode", "tui", "agent runtime mode: tui or rpc")
+	fs.StringVar(&agentMode, "agent-mode", "tui", "agent runtime mode: tui or headless")
+	fs.StringVar(&agentName, "agent", "default", "with --new, configured agent definition")
 	fs.BoolVar(&force, "force", false, "override deep work active limit")
 	if err := fs.Parse(args); err != nil {
 		return usageErr{err}
 	}
 	if len(fs.Args()) == 0 || !createNew && len(fs.Args()) != 1 {
-		return usageErr{errors.New("usage: wi start [--new] [--home] [--no-default-labels] [--agent-mode <tui|rpc>] [--force] <slug-or-title>")}
+		return usageErr{errors.New("usage: wi start [--new] [--home] [--no-default-labels] [--agent-mode <tui|headless>] [--force] <slug-or-title>")}
 	}
 	input := strings.TrimSpace(strings.Join(fs.Args(), " "))
 	if input == "" {
@@ -37,6 +38,9 @@ func runStart(ctx context.Context, args []string, cfg Config, jsonOut bool) erro
 	if home && !createNew {
 		return usageErr{errors.New("--home requires --new")}
 	}
+	if !createNew && agentName != "default" {
+		return usageErr{errors.New("--agent requires --new")}
+	}
 	mode, err := agent.ParseMode(agentMode)
 	if err != nil {
 		return usageErr{err}
@@ -45,7 +49,7 @@ func runStart(ctx context.Context, args []string, cfg Config, jsonOut bool) erro
 		if cfg.ControlAccess == coordinator.AccessAgent {
 			return errors.New("agent endpoint may create backlog items only; start --new is not allowed")
 		}
-		created, createErr := createCoordinatorWorkItem(ctx, cfg, app.NewWorkItemOptions{Title: input, CWD: cfg.CWD, Env: cfg.Env, NoDefaultLabels: noDefaultLabels, Home: home})
+		created, createErr := createCoordinatorWorkItem(ctx, cfg, app.NewWorkItemOptions{Title: input, CWD: cfg.CWD, Env: cfg.Env, NoDefaultLabels: noDefaultLabels, Home: home, Agent: agentName})
 		if createErr != nil {
 			return createErr
 		}

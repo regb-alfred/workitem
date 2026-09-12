@@ -5,7 +5,7 @@
 For each work item, you get:
 
 - a Git worktree
-- an associated durable [Pi](https://pi.dev) session
+- a selected coding-agent definition and durable primary conversation
 - a tmux session you can attach to
 
 `wi` automatically tracks which work items need your attention and provides fast switching to actionable ones.
@@ -85,11 +85,11 @@ Use `wi help <command>` for current flags and safety rules.
 - Linux
 - Go 1.24 or newer
 - Git
-- [Pi](https://pi.dev)
+- [Pi](https://pi.dev) for the default packaged agent driver
 - tmux for interactive TUI runtimes
 - fzf for the optional `wi switch` picker
 
-Headless RPC runtimes do not require tmux or fzf.
+Headless Headless runtimes do not require tmux or fzf.
 
 ## Tmux bindings
 

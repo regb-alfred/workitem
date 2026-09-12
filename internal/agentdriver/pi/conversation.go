@@ -12,7 +12,13 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/regb/workitem/internal/model"
 )
+
+func (Client) NewConversation(id string) model.Conversation {
+	return model.Conversation{Driver: "pi", ID: id, Locator: filepath.ToSlash(filepath.Join("sessions", "pi", id+".jsonl")), Format: "pi-jsonl"}
+}
 
 type sessionHeader struct {
 	Type          string `json:"type"`
@@ -23,7 +29,7 @@ type sessionHeader struct {
 	ParentSession string `json:"parentSession,omitempty"`
 }
 
-func (c Client) SessionCWD(path string) (string, error) {
+func (c Client) ConversationCWD(path string) (string, error) {
 	file, err := os.Open(path)
 	if err != nil {
 		return "", fmt.Errorf("open Pi session: %w", err)
@@ -46,9 +52,9 @@ func (c Client) SessionCWD(path string) (string, error) {
 	return strings.TrimSpace(header.CWD), nil
 }
 
-// ForkSession mirrors Pi SessionManager.forkFrom while allowing wi to choose a
+// ForkConversation mirrors Pi SessionManager.forkFrom while allowing wi to choose a
 // deterministic target path before the runtime is launched.
-func (c Client) ForkSession(ctx context.Context, sourcePath, targetPath, targetCWD string) (err error) {
+func (c Client) ForkConversation(ctx context.Context, sourcePath, targetPath, targetCWD string) (err error) {
 	if err := ctx.Err(); err != nil {
 		return err
 	}

@@ -19,39 +19,40 @@ import (
 )
 
 type Server struct {
-	dataRoot        string
-	socketPath      string
-	database        *Database
-	observer        *ExternalObserver
-	native          *store.Store
-	listener        *net.UnixListener
-	agentListener   *net.UnixListener
-	agentSocketPath string
-	startedAt       time.Time
-	buildIdentity   string
-	domainMu        sync.Mutex
-	notifyMu        sync.Mutex
-	eventNotify     chan struct{}
-	importMu        sync.RWMutex
-	lastPiImport    PiImportReport
-	closed          chan struct{}
-	closeDone       chan struct{}
-	closeOnce       sync.Once
-	wg              sync.WaitGroup
+	dataRoot               string
+	socketPath             string
+	database               *Database
+	observer               *ExternalObserver
+	native                 *store.Store
+	listener               *net.UnixListener
+	agentListener          *net.UnixListener
+	agentSocketPath        string
+	startedAt              time.Time
+	buildIdentity          string
+	domainMu               sync.Mutex
+	notifyMu               sync.Mutex
+	eventNotify            chan struct{}
+	importMu               sync.RWMutex
+	lastConversationImport ConversationImportReport
+	conversationDecoders   ConversationDecoders
+	closed                 chan struct{}
+	closeDone              chan struct{}
+	closeOnce              sync.Once
+	wg                     sync.WaitGroup
 }
 
-func NewServer(dataRoot, socketPath string) (*Server, error) {
-	return newServer(dataRoot, socketPath, "")
+func NewServer(dataRoot, socketPath string, decoders ...ConversationDecoders) (*Server, error) {
+	return newServer(dataRoot, socketPath, "", firstConversationDecoders(decoders))
 }
 
-func NewServerWithAgentSocket(dataRoot, socketPath, agentSocketPath string) (*Server, error) {
+func NewServerWithAgentSocket(dataRoot, socketPath, agentSocketPath string, decoders ...ConversationDecoders) (*Server, error) {
 	if strings.TrimSpace(agentSocketPath) == "" {
 		return nil, errors.New("agent socket path is required")
 	}
-	return newServer(dataRoot, socketPath, agentSocketPath)
+	return newServer(dataRoot, socketPath, agentSocketPath, firstConversationDecoders(decoders))
 }
 
-func newServer(dataRoot, socketPath, agentSocketPath string) (*Server, error) {
+func newServer(dataRoot, socketPath, agentSocketPath string, conversationDecoders ConversationDecoders) (*Server, error) {
 	if strings.TrimSpace(socketPath) == "" {
 		return nil, errors.New("socket path is required")
 	}
@@ -71,10 +72,10 @@ func newServer(dataRoot, socketPath, agentSocketPath string) (*Server, error) {
 		database.Close()
 		return nil, fmt.Errorf("clean orphaned command staging: %w", err)
 	}
-	piReport, err := ImportPiSessions(context.Background(), database, dataRoot)
+	conversationReport, err := ImportConversations(context.Background(), database, dataRoot, conversationDecoders)
 	if err != nil {
 		database.Close()
-		return nil, fmt.Errorf("index Pi sessions: %w", err)
+		return nil, fmt.Errorf("index native conversations: %w", err)
 	}
 	observer := NewExternalObserver(database, dataRoot)
 	if err := observer.Reconcile(context.Background()); err != nil {
@@ -106,7 +107,7 @@ func newServer(dataRoot, socketPath, agentSocketPath string) (*Server, error) {
 			return nil, fmt.Errorf("listen on agent coordinator socket: %w", err)
 		}
 	}
-	server := &Server{dataRoot: dataRoot, socketPath: socketPath, agentSocketPath: agentSocketPath, database: database, observer: observer, native: nativeStore, listener: listener, agentListener: agentListener, startedAt: time.Now().UTC(), buildIdentity: version.BuildIdentity(), lastPiImport: piReport, eventNotify: make(chan struct{}), closed: make(chan struct{}), closeDone: make(chan struct{})}
+	server := &Server{dataRoot: dataRoot, socketPath: socketPath, agentSocketPath: agentSocketPath, database: database, observer: observer, native: nativeStore, listener: listener, agentListener: agentListener, startedAt: time.Now().UTC(), buildIdentity: version.BuildIdentity(), lastConversationImport: conversationReport, conversationDecoders: conversationDecoders, eventNotify: make(chan struct{}), closed: make(chan struct{}), closeDone: make(chan struct{})}
 	return server, nil
 }
 
@@ -218,11 +219,11 @@ func (s *Server) reconcilePi(ctx context.Context) {
 			return
 		case <-ticker.C:
 			s.domainMu.Lock()
-			piReport, piErr := ImportPiSessions(ctx, s.database, s.dataRoot)
+			conversationReport, conversationErr := ImportConversations(ctx, s.database, s.dataRoot, s.conversationDecoders)
 			s.domainMu.Unlock()
-			if piErr == nil {
+			if conversationErr == nil {
 				s.importMu.Lock()
-				s.lastPiImport = piReport
+				s.lastConversationImport = conversationReport
 				s.importMu.Unlock()
 			}
 		}
@@ -260,7 +261,7 @@ func (s *Server) activityBarrier(ctx context.Context) (ActivityBarrierResult, er
 }
 
 func (s *Server) refreshActionabilityLocked(ctx context.Context) (ActivityBarrierResult, error) {
-	report, err := ImportActivePiSessions(ctx, s.database, s.dataRoot)
+	report, err := ImportActiveConversations(ctx, s.database, s.dataRoot, s.conversationDecoders)
 	if err != nil {
 		return ActivityBarrierResult{}, err
 	}
@@ -268,14 +269,14 @@ func (s *Server) refreshActionabilityLocked(ctx context.Context) (ActivityBarrie
 		return ActivityBarrierResult{}, err
 	}
 	s.importMu.Lock()
-	s.lastPiImport = report
+	s.lastConversationImport = report
 	s.importMu.Unlock()
 	status, err := s.database.Status()
 	if err != nil {
 		return ActivityBarrierResult{}, err
 	}
 	observedAt := time.Now().UTC()
-	return ActivityBarrierResult{Projection: ProjectionMetadata{Revision: status.GlobalSequence, Source: "daemon.activity_barrier", ObservedAt: observedAt, Fresh: true, Warnings: append([]string(nil), report.Warnings...)}, PiImport: report}, nil
+	return ActivityBarrierResult{Projection: ProjectionMetadata{Revision: status.GlobalSequence, Source: "daemon.activity_barrier", ObservedAt: observedAt, Fresh: true, Warnings: append([]string(nil), report.Warnings...)}, ConversationImport: report}, nil
 }
 
 func (s *Server) actionabilitySnapshot(ctx context.Context, currentItemID string, options ActionabilityQueueOptions) (ActionabilitySnapshotResult, error) {
@@ -289,7 +290,7 @@ func (s *Server) actionabilitySnapshot(ctx context.Context, currentItemID string
 	if err != nil {
 		return ActionabilitySnapshotResult{}, err
 	}
-	return ActionabilitySnapshotResult{Projection: barrier.Projection, PiImport: barrier.PiImport, Queue: queue, Selection: SelectActionability(queue, currentItemID)}, nil
+	return ActionabilitySnapshotResult{Projection: barrier.Projection, ConversationImport: barrier.ConversationImport, Queue: queue, Selection: SelectActionability(queue, currentItemID)}, nil
 }
 
 func (s *Server) publishRuntimeEvent() {
@@ -385,22 +386,22 @@ func (s *Server) handle(conn *net.UnixConn, access string) {
 	case MethodShutdown:
 		result = map[string]any{"stopping": true}
 		defer func() { go s.Close() }()
-	case MethodPiSession:
+	case MethodConversation:
 		var itemRequest ItemRequest
 		if err := json.Unmarshal(request.Payload, &itemRequest); err != nil || !model.ValidID(itemRequest.ItemID) {
 			s.writeError(conn, request.ID, "invalid_request", "valid item_id is required")
 			return
 		}
-		var session PiSessionIndex
-		found, err := s.database.ReadProjection(PiSessionProjection, itemRequest.ItemID, &session)
+		var session ConversationIndex
+		found, err := s.database.ReadProjection(ConversationProjection, itemRequest.ItemID, &session)
 		if err != nil {
 			s.writeError(conn, request.ID, "database_error", err.Error())
 			return
 		}
 		s.importMu.RLock()
-		piWarnings := append([]string(nil), s.lastPiImport.Warnings...)
+		conversationWarnings := append([]string(nil), s.lastConversationImport.Warnings...)
 		s.importMu.RUnlock()
-		result = PiSessionProjectionResult{Projection: ProjectionMetadata{Revision: uint64(session.Offset), Source: session.Source, ObservedAt: session.ObservedAt, Fresh: found, Warnings: piWarnings}, Found: found, Session: session}
+		result = ConversationProjectionResult{Projection: ProjectionMetadata{Revision: uint64(session.Offset), Source: session.Source, ObservedAt: session.ObservedAt, Fresh: found, Warnings: conversationWarnings}, Found: found, Conversation: session}
 	case MethodItemResources:
 		var itemRequest ItemRequest
 		if err := json.Unmarshal(request.Payload, &itemRequest); err != nil || !model.ValidID(itemRequest.ItemID) {
@@ -692,7 +693,7 @@ func agentMethodAllowed(method string) bool {
 func agentVisibleManifest(manifest model.Manifest) model.Manifest {
 	manifest.Repository = model.Repository{}
 	manifest.Checkout = model.Checkout{Kind: manifest.Checkout.Kind}
-	manifest.RootPiSession = nil
+	manifest.PrimaryConversation = nil
 	return manifest
 }
 
@@ -709,7 +710,7 @@ func validateAgentCreateItem(manifest model.Manifest) error {
 	if manifest.Checkout.Branch != model.ItemBranchName(manifest.Slug, manifest.ID) {
 		return errors.New("agent endpoint requires the canonical item branch")
 	}
-	if manifest.RootPiSession != nil {
+	if manifest.PrimaryConversation != nil {
 		return errors.New("agent endpoint may not create conversation state")
 	}
 	return nil
@@ -721,9 +722,9 @@ func (s *Server) status() (Status, error) {
 		return Status{}, err
 	}
 	s.importMu.RLock()
-	lastPiImport := s.lastPiImport
+	lastConversationImport := s.lastConversationImport
 	s.importMu.RUnlock()
-	return Status{ProtocolVersion: ProtocolVersion, BuildIdentity: s.buildIdentity, PID: os.Getpid(), StartedAt: s.startedAt.Format(time.RFC3339Nano), DataRoot: s.dataRoot, SocketPath: s.socketPath, AgentSocketPath: s.agentSocketPath, Access: AccessOperator, Database: database, PiImport: lastPiImport}, nil
+	return Status{ProtocolVersion: ProtocolVersion, BuildIdentity: s.buildIdentity, PID: os.Getpid(), StartedAt: s.startedAt.Format(time.RFC3339Nano), DataRoot: s.dataRoot, SocketPath: s.socketPath, AgentSocketPath: s.agentSocketPath, Access: AccessOperator, Database: database, ConversationImport: lastConversationImport}, nil
 }
 
 func (s *Server) writeError(conn net.Conn, id, code, message string) {

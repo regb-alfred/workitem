@@ -14,7 +14,7 @@ import (
 	"github.com/regb/workitem/internal/model"
 )
 
-func TestPiImporterIndexesIncrementallyWithoutConversationContent(t *testing.T) {
+func TestConversationImporterIndexesIncrementallyWithoutConversationContent(t *testing.T) {
 	root, itemID, sessionID := t.TempDir(), importTestID, "01KZYHHK91GWS6FZFQZQTT1KJ2"
 	relative := filepath.Join("sessions", "pi", sessionID+".jsonl")
 	path := filepath.Join(root, "items", itemID, relative)
@@ -43,18 +43,18 @@ func TestPiImporterIndexesIncrementallyWithoutConversationContent(t *testing.T) 
 	}
 	defer db.Close()
 	manifest := model.NewManifest(itemID, "pi-index", "Pi index", nil, false, at, model.Repository{}, model.Checkout{})
-	manifest.RootPiSession = &model.PiSession{ID: sessionID, Path: relative}
+	manifest.PrimaryConversation = &model.Conversation{Driver: "pi", ID: sessionID, Locator: relative}
 	encodedManifest, _ := json.Marshal(manifest)
 	digest := sha256.Sum256(encodedManifest)
 	if _, err := db.SyncImportedManifests(map[string]ImportedManifest{itemID: {Manifest: manifest, Digest: hex.EncodeToString(digest[:])}}, true); err != nil {
 		t.Fatal(err)
 	}
-	first, err := ImportPiSessions(context.Background(), db, root)
+	first, err := ImportConversations(context.Background(), db, root, testConversationDecoders)
 	if err != nil || first.FilesImported != 1 || first.EntriesScanned != 4 || first.MalformedLines != 0 {
 		t.Fatalf("first=%+v err=%v", first, err)
 	}
-	var index PiSessionIndex
-	if ok, err := db.ReadProjection(PiSessionProjection, itemID, &index); err != nil || !ok || index.InferredTurnState != "idle" || index.LastUserPrompt == nil || index.LastTerminalAssistant == nil || index.LastToolActivity == nil {
+	var index ConversationIndex
+	if ok, err := db.ReadProjection(ConversationProjection, itemID, &index); err != nil || !ok || index.InferredTurnState != "idle" || index.LastUserPrompt == nil || index.LastTerminalAssistant == nil || index.LastToolActivity == nil {
 		t.Fatalf("index=%+v ok=%v err=%v", index, ok, err)
 	}
 	var activity AttentionActivity
@@ -70,8 +70,47 @@ func TestPiImporterIndexesIncrementallyWithoutConversationContent(t *testing.T) 
 			t.Fatalf("database contains Pi content %q", secret)
 		}
 	}
-	second, err := ImportPiSessions(context.Background(), db, root)
+	second, err := ImportConversations(context.Background(), db, root, testConversationDecoders)
 	if err != nil || second.EntriesScanned != 0 || second.BytesRead != 0 {
 		t.Fatalf("second=%+v err=%v", second, err)
 	}
+}
+
+var testConversationDecoders = ConversationDecoders{"pi": func(_ context.Context, conversation model.Conversation, records []ConversationRecord) ([]ConversationEventFact, []bool, error) {
+	facts := make([]ConversationEventFact, 0, len(records))
+	decoded := make([]bool, len(records))
+	for i, record := range records {
+		fact, ok := testConversationLineDecoder(conversation, record.Line, record.Raw)
+		decoded[i] = ok
+		if ok {
+			facts = append(facts, fact)
+		}
+	}
+	return facts, decoded, nil
+}}
+
+func testConversationLineDecoder(_ model.Conversation, line uint64, raw []byte) (ConversationEventFact, bool) {
+	var value struct {
+		Type      string `json:"type"`
+		Timestamp string `json:"timestamp"`
+		Message   struct {
+			Role       string `json:"role"`
+			StopReason string `json:"stopReason"`
+			Content    []struct {
+				Type string `json:"type"`
+			} `json:"content"`
+		} `json:"message"`
+	}
+	if json.Unmarshal(raw, &value) != nil {
+		return ConversationEventFact{}, false
+	}
+	fact := ConversationEventFact{Line: line, Type: value.Type, Role: value.Message.Role, StopReason: value.Message.StopReason}
+	fact.Timestamp, _ = time.Parse(time.RFC3339Nano, value.Timestamp)
+	for _, block := range value.Message.Content {
+		fact.ContentTypes = append(fact.ContentTypes, block.Type)
+	}
+	if fact.Role == "assistant" && fact.StopReason == "stop" {
+		fact.Terminal = true
+	}
+	return fact, true
 }

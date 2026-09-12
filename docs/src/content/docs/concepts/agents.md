@@ -1,11 +1,18 @@
 ---
 title: Agents and conversations
-description: Separate the durable primary conversation from its replaceable runtime.
+description: Separate agent definitions, drivers, durable conversations, and replaceable runtimes.
 ---
 
-Each work item has one durable primary agent conversation. Only one Pi process may use it at a time.
+Each work item selects one agent definition and has at most one durable primary conversation. Only one runtime may own that conversation at a time.
 
-The conversation is part of the item's history. The runtime is a replaceable process that opens and controls it. Stopping a runtime does not discard the conversation.
+An **agent definition** is the configured agent selected by a user, such as `default` or `web-search`. A **driver** integrates an agent family with wi. Multiple definitions may use the same driver with different settings. The implicit `default` definition uses the standard Pi driver when no configuration overrides it.
+
+```bash
+wi new --agent web-search "Research upstream behavior"
+wi start --new --agent web-search "Investigate rendering"
+```
+
+The conversation is part of the item's history. The runtime is a replaceable driver and backend process that opens and controls it. Stopping a runtime does not discard the conversation.
 
 ## TUI mode
 
@@ -16,19 +23,17 @@ wi start item-slug
 wi switch item-slug
 ```
 
-It runs native interactive Pi inside a wi-owned tmux session. You can leave and re-enter the session while the conversation continues to belong to the item.
+A driver advertising native TUI support runs its backend inside a wi-owned tmux session. You can leave and re-enter the session while the conversation continues to belong to the item. The standard Pi driver runs native interactive Pi this way.
 
-## RPC mode
+## Headless mode
 
-RPC mode is headless and does not use tmux:
+Headless mode does not use tmux:
 
 ```bash
-wi start --agent-mode rpc item-slug
+wi start --agent-mode headless item-slug
 ```
 
-It runs Pi through its headless JSONL interface. This is useful for automation, background delegation, and environments without tmux.
-
-Pi cannot attach its native TUI to a live RPC process. Stop the current runtime before switching modes:
+A driver must advertise headless support to use this mode. Stop the current runtime before switching modes:
 
 ```bash
 wi agent runtime stop item-slug
@@ -60,10 +65,10 @@ wi agent control send --item item-slug "Run the focused tests and explain failur
 
 While the agent is busy, the default steering message runs after the current assistant turn and tool calls. Use `--follow-up` when the message must wait for the current run to settle. Use `--file` or `--stdin` for longer input.
 
-Control delivery only confirms that Pi accepted the message. Use `wi agent monitor`, or enter the TUI, to inspect the result.
+Control delivery confirms only that the active driver accepted the message. Use `wi agent monitor`, or enter the TUI, to inspect the result. Drivers advertise which controls they support and must reject unsupported operations rather than emulate TUI keystrokes.
 
 ## One runtime at a time
 
-TUI and RPC cannot use the same conversation at the same time. Stop the active runtime before starting the conversation in another mode.
+TUI and Headless runtimes cannot own the same conversation simultaneously. Stop the active runtime before starting another mode.
 
 Force cleanup stops a process only after `wi` verifies that it still belongs to the item. A stale runtime record will not cause an unrelated process to be stopped.

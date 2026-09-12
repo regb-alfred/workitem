@@ -8,10 +8,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/regb/workitem/internal/pi"
+	"github.com/regb/workitem/internal/agentdriver/pi"
 )
 
-func TestForkSessionRehomesHeaderAndPreservesEntries(t *testing.T) {
+func TestForkConversationRehomesHeaderAndPreservesEntries(t *testing.T) {
 	root := t.TempDir()
 	source := filepath.Join(root, "source.jsonl")
 	target := filepath.Join(root, "target.jsonl")
@@ -21,10 +21,10 @@ func TestForkSessionRehomesHeaderAndPreservesEntries(t *testing.T) {
 		t.Fatal(err)
 	}
 	client := pi.New("pi")
-	if cwd, err := client.SessionCWD(source); err != nil || cwd != "/worktrees/slot-0004" {
+	if cwd, err := client.ConversationCWD(source); err != nil || cwd != "/worktrees/slot-0004" {
 		t.Fatalf("cwd=%q err=%v", cwd, err)
 	}
-	if err := client.ForkSession(context.Background(), source, target, "/worktrees/slot-0002"); err != nil {
+	if err := client.ForkConversation(context.Background(), source, target, "/worktrees/slot-0002"); err != nil {
 		t.Fatal(err)
 	}
 	data, err := os.ReadFile(target)
@@ -46,17 +46,17 @@ func TestForkSessionRehomesHeaderAndPreservesEntries(t *testing.T) {
 	if header.Type != "session" || header.Version != 3 || header.ID == "11111111-1111-4111-8111-111111111111" || header.CWD != "/worktrees/slot-0002" || header.ParentSession != absoluteSource {
 		t.Fatalf("header = %+v", header)
 	}
-	if err := client.ForkSession(context.Background(), source, target, "/worktrees/slot-0002"); err == nil {
+	if err := client.ForkConversation(context.Background(), source, target, "/worktrees/slot-0002"); err == nil {
 		t.Fatal("expected existing target refusal")
 	}
 }
 
-func TestSessionCWDEmptyFile(t *testing.T) {
+func TestConversationCWDEmptyFile(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "empty.jsonl")
 	if err := os.WriteFile(path, nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	cwd, err := pi.New("pi").SessionCWD(path)
+	cwd, err := pi.New("pi").ConversationCWD(path)
 	if err != nil || cwd != "" {
 		t.Fatalf("cwd=%q err=%v", cwd, err)
 	}

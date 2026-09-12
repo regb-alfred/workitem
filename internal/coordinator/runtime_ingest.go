@@ -22,6 +22,7 @@ type RuntimeSemanticEvent struct {
 	WorkItemID string    `json:"work_item_id"`
 	Type       string    `json:"type"`
 	Timestamp  time.Time `json:"timestamp"`
+	CommandID  string    `json:"command_id,omitempty"`
 	RequestID  string    `json:"request_id,omitempty"`
 	Role       string    `json:"role,omitempty"`
 	ToolName   string    `json:"tool_name,omitempty"`
@@ -93,7 +94,7 @@ func IngestRuntimeEvent(ctx context.Context, database *Database, event RuntimeSe
 		observationBytes, _ := json.Marshal(observation)
 		updates = append(updates, ProjectionUpdate{Projection: AgentObservationProjection, Key: event.WorkItemID, Value: observationBytes})
 	}
-	payload, _ := json.Marshal(map[string]any{"runtime_id": event.RuntimeID, "request_id": header.RequestID, "role": header.Role, "tool_name": header.ToolName, "failed": event.Failed})
+	payload, _ := json.Marshal(map[string]any{"runtime_id": event.RuntimeID, "command_id": compactIdentifier(event.CommandID, 200), "request_id": header.RequestID, "role": header.Role, "tool_name": header.ToolName, "failed": event.Failed})
 	commandID := "runtime-event:" + event.ID
 	committed, err := database.Commit(Command{ID: commandID, ProtocolVersion: ProtocolVersion, Type: "runtime.event.ingest", Actor: "runtime", ItemID: event.WorkItemID, ReceivedAt: time.Now().UTC()}, []PendingEvent{{ID: event.ID, ItemID: event.WorkItemID, Type: event.Type, Timestamp: event.Timestamp.UTC(), Actor: "runtime", Payload: payload}}, updates)
 	if err != nil {

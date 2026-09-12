@@ -16,8 +16,8 @@ func runtimeModeFor(mode agent.Mode) (runtimeMode, error) {
 	switch mode {
 	case agent.ModeTUI:
 		return tuiRuntimeMode{}, nil
-	case agent.ModeRPC:
-		return rpcRuntimeMode{}, nil
+	case agent.ModeHeadless:
+		return headlessRuntimeMode{}, nil
 	default:
 		return nil, fmt.Errorf("invalid Pi runtime mode %q", mode)
 	}

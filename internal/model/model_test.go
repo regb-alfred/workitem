@@ -101,8 +101,8 @@ func TestNewManifestUsesEmptyLabelsAndNoPiRegistry(t *testing.T) {
 	if m.Labels == nil {
 		t.Fatalf("manifest labels should be a non-nil empty slice: %+v", m)
 	}
-	if m.RootPiSession != nil {
-		t.Fatalf("new manifest should not pre-register a root Pi session: %+v", m)
+	if m.PrimaryConversation != nil {
+		t.Fatalf("new manifest should not pre-register a primary conversation: %+v", m)
 	}
 }
 

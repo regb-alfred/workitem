@@ -16,7 +16,13 @@ wi new --desc-file task.md --label backend "Fix token refresh"
 Create and delegate a headless task:
 
 ```bash
-wi new --agent-mode rpc --prompt "Run the audit and report findings." "Audit dependencies"
+wi new --agent-mode headless --prompt "Run the audit and report findings." "Audit dependencies"
+```
+
+Select a named agent definition at creation:
+
+```bash
+wi new --agent web-search --prompt "Research upstream reports." "Investigate rendering"
 ```
 
 Start existing backlog work interactively:

@@ -3,7 +3,7 @@ title: Use tmux
 description: Enter TUI agents and navigate active work through tmux.
 ---
 
-Tmux is optional. `wi` uses it as the human-access layer for native Pi TUI sessions. RPC mode remains tmux-independent.
+Tmux is optional. `wi` uses it as the human-access layer for native Pi TUI sessions. Headless mode remains tmux-independent.
 
 ## Enter an item
 

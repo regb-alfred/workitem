@@ -59,9 +59,9 @@ func runShow(ctx context.Context, args []string, cfg Config, jsonOut bool) error
 		fmt.Fprintf(cfg.Stdout, "Repository home: %s\n", m.Repository.OperationalRoot())
 	}
 	fmt.Fprintf(cfg.Stdout, "Terminal: %s %s\n", "tmux", m.TerminalSessionName())
-	if m.RootPiSession != nil {
-		fmt.Fprintf(cfg.Stdout, "Root Pi session: %s\n", m.RootPiSession.ID)
-		fmt.Fprintf(cfg.Stdout, "Root Pi path: %s\n", m.RootPiSession.Path)
+	if m.PrimaryConversation != nil {
+		fmt.Fprintf(cfg.Stdout, "Primary conversation: %s\n", m.PrimaryConversation.ID)
+		fmt.Fprintf(cfg.Stdout, "Conversation locator: %s\n", m.PrimaryConversation.NativeLocator())
 	}
 	fmt.Fprintf(cfg.Stdout, "Created: %s\n", m.CreatedAt.Format(timeFormatHuman))
 	fmt.Fprintf(cfg.Stdout, "Updated: %s\n", m.UpdatedAt.Format(timeFormatHuman))

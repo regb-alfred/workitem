@@ -63,7 +63,7 @@ func TestStoreCommandsCommitCanonicalStateWithoutSensitivePayloads(t *testing.T)
 		t.Fatal(err)
 	}
 
-	runtime := model.AgentRuntime{ID: "runtime-1", WorkItemID: importTestID, Mode: "rpc", State: model.AgentRuntimeProblem, StartedAt: now, UpdatedAt: now.Add(3 * time.Second)}
+	runtime := model.AgentRuntime{ID: "runtime-1", WorkItemID: importTestID, Mode: "headless", State: model.AgentRuntimeProblem, StartedAt: now, UpdatedAt: now.Add(3 * time.Second)}
 	payload, _ = json.Marshal(runtime)
 	current, _ = db.CanonicalManifest(importTestID)
 	runtimeCommand := StoreCommand{ID: "runtime-generic", ProtocolVersion: ProtocolVersion, Operation: StoreAgentRuntimeSave, ItemID: importTestID, ExpectedRevision: &current.Revision, PayloadDigest: StorePayloadDigest(payload), CreatedAt: now.Add(3 * time.Second)}

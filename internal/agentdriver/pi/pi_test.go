@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"github.com/regb/workitem/internal/agent"
-	"github.com/regb/workitem/internal/pi"
+	"github.com/regb/workitem/internal/agentdriver/pi"
 )
 
 type recordingRunner struct {
@@ -54,7 +54,7 @@ func TestExecCommandConstructionByMode(t *testing.T) {
 		headless bool
 	}{
 		{mode: agent.ModeTUI, wantArgs: []string{"--extension", "/tmp/bridge.ts", "--session", "/tmp/item/sessions/pi/session.jsonl"}},
-		{mode: agent.ModeRPC, wantArgs: []string{"--mode", "rpc", "--session", "/tmp/item/sessions/pi/session.jsonl"}, headless: true},
+		{mode: agent.ModeHeadless, wantArgs: []string{"--mode", "rpc", "--session", "/tmp/item/sessions/pi/session.jsonl"}, headless: true},
 	} {
 		t.Run(string(tt.mode), func(t *testing.T) {
 			r := &recordingRunner{}

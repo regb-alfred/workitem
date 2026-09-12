@@ -17,7 +17,7 @@ type StopResult struct {
 	Warnings   []string            `json:"warnings"`
 }
 
-func (s *Service) Prepare(ctx context.Context, m model.Manifest, session model.PiSession, mode agent.Mode) (model.AgentRuntime, error) {
+func (s *Service) Prepare(ctx context.Context, m model.Manifest, session model.Conversation, mode agent.Mode) (model.AgentRuntime, error) {
 	if !mode.Valid() {
 		return model.AgentRuntime{}, fmt.Errorf("invalid agent runtime mode %q", mode)
 	}
@@ -60,7 +60,7 @@ func (s *Service) Stop(ctx context.Context, opts contract.ResolveOptions, force 
 		}
 	}
 	now := s.now()
-	if force {
+	if force && runtime.Capabilities.Cancel {
 		abort := agent.ControlCommand{ID: fmt.Sprintf("abort-%d", now.UnixNano()), Type: agent.CommandAbort, Actor: "operator", CreatedAt: now}
 		if err := s.SubmitControl(ctx, m.ID, *runtime, abort); err != nil {
 			if errors.Is(err, agent.ErrControlSocketUnavailable) && ownership.IdentityVerified {

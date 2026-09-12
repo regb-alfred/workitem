@@ -2,12 +2,15 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
 	"time"
 
+	"github.com/regb/workitem/agentdriver/protocol"
 	"github.com/regb/workitem/internal/agent"
+	agentdriver "github.com/regb/workitem/internal/agentdriver"
 	tmuxporcelain "github.com/regb/workitem/internal/app/adapter/tmux/porcelain"
 	terminaladapter "github.com/regb/workitem/internal/app/adapter/tmux/terminal"
 	"github.com/regb/workitem/internal/app/contract"
@@ -20,14 +23,13 @@ import (
 	direnvpkg "github.com/regb/workitem/internal/direnv"
 	gitpkg "github.com/regb/workitem/internal/git"
 	"github.com/regb/workitem/internal/model"
-	piadapter "github.com/regb/workitem/internal/pi"
 	processpkg "github.com/regb/workitem/internal/process"
 	"github.com/regb/workitem/internal/store"
 	tmuxpkg "github.com/regb/workitem/internal/tmux"
 )
 
 type Git interface {
-	DetectRepository(ctx context.Context, dir, revision string) (gitpkg.RepositoryInfo, error)
+	DetectRepository(ctx context.Context, dir, revision string) (model.RepositoryInfo, error)
 	DefaultBranch(ctx context.Context, repoRoot string) (string, error)
 	RepositoryHome(ctx context.Context, repoRoot string) (model.RepositoryHomeInfo, error)
 	Head(ctx context.Context, dir string) (string, error)
@@ -59,10 +61,11 @@ type ProcessInspector interface {
 	FindDescendant(rootPID int, needles []string) (processpkg.Info, bool, error)
 }
 
-type Pi interface {
-	ExecMode(ctx context.Context, spec piadapter.ExecSpec) error
-	SessionCWD(path string) (string, error)
-	ForkSession(ctx context.Context, sourcePath, targetPath, targetCWD string) error
+type ConversationBackend interface {
+	NewConversation(ctx context.Context, id, agent string, config json.RawMessage) (model.Conversation, error)
+	ConversationCWD(ctx context.Context, path string) (string, error)
+	ForkConversation(ctx context.Context, sourcePath, targetPath, targetCWD string) error
+	ObserveConversation(ctx context.Context, conversation model.Conversation, path string, now time.Time) (driverprotocol.ConversationObservation, []string, error)
 }
 
 type Direnv interface {
@@ -95,6 +98,13 @@ type Store interface {
 	WorktreesDir() string
 }
 
+type AgentDriverRunner func(context.Context, string, []string, driverprotocol.LaunchRequest, []string, func(driverprotocol.Ready) error) error
+
+type BundledDriverCommand struct {
+	Path string
+	Args []string
+}
+
 type Clock interface {
 	Now() time.Time
 }
@@ -104,37 +114,41 @@ type realClock struct{}
 func (realClock) Now() time.Time { return time.Now() }
 
 type App struct {
-	Store                      Store
-	Git                        Git
-	Tmux                       Tmux
-	Pi                         Pi
-	Direnv                     Direnv
-	Process                    ProcessInspector
-	Clock                      Clock
-	NewID                      func() (string, error)
-	SelfPath                   string
-	DaemonSocketPath           string
-	AgentRuntimeStateRoot      string
-	AgentRuntimeSocketRoot     string
-	AgentRuntimeReadyTimeout   time.Duration
-	AgentRuntimeReadyInterval  time.Duration
-	ArchiveRuntimeStopTimeout  time.Duration
-	ShutdownRuntimeStopTimeout time.Duration
-	DeepWorkConfig             config.DeepWorkConfig
-	ItemConfig                 config.ItemConfig
-	ListConfig                 config.ListConfig
-	AgentStatusConfig          config.AgentStatusConfig
-	AttentionConfig            config.AttentionConfig
-	DirenvConfig               config.DirenvConfig
-	ApproveDirenv              agentcore.DirenvApprover
-	AgentRuntimeLauncher       agent.Launcher
-	PiSessionObserver          agentcore.PiSessionObserver
-	WorkListObserver           viewapp.Observe
+	Store                          Store
+	Git                            Git
+	Tmux                           Tmux
+	ConversationBackends           map[string]ConversationBackend
+	Direnv                         Direnv
+	Process                        ProcessInspector
+	Clock                          Clock
+	NewID                          func() (string, error)
+	SelfPath                       string
+	DaemonSocketPath               string
+	AgentRuntimeStateRoot          string
+	AgentRuntimeSocketRoot         string
+	AgentRuntimeReadyTimeout       time.Duration
+	AgentRuntimeReadyInterval      time.Duration
+	ArchiveRuntimeStopTimeout      time.Duration
+	ShutdownRuntimeStopTimeout     time.Duration
+	DeepWorkConfig                 config.DeepWorkConfig
+	ItemConfig                     config.ItemConfig
+	ListConfig                     config.ListConfig
+	AgentStatusConfig              config.AgentStatusConfig
+	AttentionConfig                config.AttentionConfig
+	DirenvConfig                   config.DirenvConfig
+	AgentsConfig                   map[string]config.AgentDefinitionConfig
+	DriversConfig                  map[string]config.DriverDefinitionConfig
+	BundledDriverCommands          map[string]BundledDriverCommand
+	ApproveDirenv                  agentcore.DirenvApprover
+	AgentRuntimeLauncher           agent.Launcher
+	RunAgentDriver                 AgentDriverRunner
+	ConversationProjectionObserver agentcore.ConversationObserver
+	WorkListObserver               viewapp.Observe
 }
 
 func New(st Store, git Git) *App {
 	cfg := config.Default()
-	a := &App{Store: st, Git: git, Process: processpkg.New(), Clock: realClock{}, NewID: model.NewID, DeepWorkConfig: cfg.DeepWork, ItemConfig: cfg.Item, ListConfig: cfg.List, AgentStatusConfig: cfg.AgentStatus, AttentionConfig: cfg.Attention, DirenvConfig: cfg.Direnv, AgentRuntimeLauncher: agent.ExecLauncher{}}
+	a := &App{Store: st, Git: git, Process: processpkg.New(), Clock: realClock{}, NewID: model.NewID, DeepWorkConfig: cfg.DeepWork, ItemConfig: cfg.Item, ListConfig: cfg.List, AgentStatusConfig: cfg.AgentStatus, AttentionConfig: cfg.Attention, DirenvConfig: cfg.Direnv, AgentsConfig: cfg.Agents, DriversConfig: cfg.Drivers, AgentRuntimeLauncher: agent.ExecLauncher{}, RunAgentDriver: agentdriver.Run, ConversationBackends: map[string]ConversationBackend{}, BundledDriverCommands: map[string]BundledDriverCommand{}}
 	return a
 }
 
@@ -186,7 +200,10 @@ func (a *App) primaryAgentService() *agentcore.Service {
 		status, err := a.AgentStatus(ctx, AgentStatusOptions{ResolveOptions: ResolveOptions{Selector: itemID}})
 		return status.Status == "busy", err
 	})
-	service.PiSessionObserver = a.PiSessionObserver
+	service.ConversationObserver = a.ConversationProjectionObserver
+	if service.ConversationObserver == nil {
+		service.ConversationObserver = a.observeConversation
+	}
 	service.RuntimeStateRoot = a.AgentRuntimeStateRoot
 	service.RuntimeSocketRoot = a.AgentRuntimeSocketRoot
 	return service
@@ -217,12 +234,12 @@ func (a *App) now() time.Time {
 // envelope with only Checkout populated; it never populates adapter/runtime
 // fields itself.
 type CompositionResult struct {
-	WorkItemID   string              `json:"work_item_id"`
-	Checkout     model.Checkout      `json:"checkout"`
-	Terminal     *TerminalResult     `json:"terminal,omitempty"`
-	PiSession    *model.PiSession    `json:"pi_session,omitempty"`
-	PiLaunched   bool                `json:"pi_launched,omitempty"`
-	AgentRuntime *model.AgentRuntime `json:"agent_runtime,omitempty"`
-	Manifest     model.Manifest      `json:"manifest"`
-	Warnings     []string            `json:"warnings"`
+	WorkItemID    string              `json:"work_item_id"`
+	Checkout      model.Checkout      `json:"checkout"`
+	Terminal      *TerminalResult     `json:"terminal,omitempty"`
+	Conversation  *model.Conversation `json:"conversation,omitempty"`
+	AgentLaunched bool                `json:"agent_launched,omitempty"`
+	AgentRuntime  *model.AgentRuntime `json:"agent_runtime,omitempty"`
+	Manifest      model.Manifest      `json:"manifest"`
+	Warnings      []string            `json:"warnings"`
 }

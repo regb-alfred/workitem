@@ -87,7 +87,7 @@ func (a *App) materializeTransitionAgent(ctx context.Context, opts ResolveOption
 	}
 	workspace := CompositionResult{
 		WorkItemID: transition.Manifest.ID, Checkout: manifest.Checkout,
-		PiSession: manifest.RootPiSession, PiLaunched: runtime.Created,
+		Conversation: manifest.PrimaryConversation, AgentLaunched: runtime.Created,
 		AgentRuntime: &runtime.Runtime, Manifest: manifest, Warnings: runtime.Warnings,
 	}
 	if mode == agent.ModeTUI {

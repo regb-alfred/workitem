@@ -34,8 +34,8 @@ func coordinatorAgentStatus(ctx context.Context, cfg Config, selector string, st
 		return app.AgentStatusResult{}, fmt.Errorf("daemon has not built agent observation for %s", manifest.ID)
 	}
 	value := projection.Observation
-	piStatus, piWarnings := coordinatorPiSessionObserver(cfg.Coordinator)(manifest, time.Now())
-	process := app.AgentProcessStatus{RuntimeID: value.Process.RuntimeID, RuntimeMode: value.Process.RuntimeMode, RuntimeHostPID: value.Process.RuntimeHostPID, TmuxSession: value.Process.TmuxSession, TmuxWindow: value.Process.TmuxWindow, TmuxPaneID: value.Process.TmuxPaneID, TmuxPaneIndex: value.Process.TmuxPaneIndex, TmuxPanePID: value.Process.TmuxPanePID, TmuxPaneCommand: value.Process.TmuxPaneCommand, TmuxPanePath: value.Process.TmuxPanePath, TmuxPaneAlive: value.Process.TmuxPanePID > 0, PiPID: value.Process.PiPID, PiProcessAlive: value.ProcessOnline, Online: value.ProcessOnline, DiscoverySource: value.Process.DiscoverySource}
+	conversationStatus, conversationWarnings := coordinatorConversationObserver(cfg.Coordinator)(ctx, manifest, time.Now())
+	process := app.AgentProcessStatus{RuntimeID: value.Process.RuntimeID, RuntimeMode: value.Process.RuntimeMode, RuntimeHostPID: value.Process.RuntimeHostPID, TmuxSession: value.Process.TmuxSession, TmuxWindow: value.Process.TmuxWindow, TmuxPaneID: value.Process.TmuxPaneID, TmuxPaneIndex: value.Process.TmuxPaneIndex, TmuxPanePID: value.Process.TmuxPanePID, TmuxPaneCommand: value.Process.TmuxPaneCommand, TmuxPanePath: value.Process.TmuxPanePath, TmuxPaneAlive: value.Process.TmuxPanePID > 0, BackendPID: value.Process.BackendPID, BackendProcessAlive: value.ProcessOnline, Online: value.ProcessOnline, DiscoverySource: value.Process.DiscoverySource}
 	var worktree *app.WorktreeStatus
 	if value.Worktree != nil {
 		worktree = &app.WorktreeStatus{Status: value.Worktree.Status, Reason: value.Worktree.Reason, CheckoutPath: value.Worktree.CheckoutPath, Head: value.Worktree.Head, ExpectedBranch: value.Worktree.ExpectedBranch, CurrentBranch: value.Worktree.CurrentBranch, BranchMatches: value.Worktree.BranchMatches, BranchMismatch: value.Worktree.BranchMismatch, Dirty: value.Worktree.Dirty, HasChanges: value.Worktree.HasChanges}
@@ -43,13 +43,13 @@ func coordinatorAgentStatus(ctx context.Context, cfg Config, selector string, st
 	status, reason := value.Status, value.Reason
 	if status == "busy" && staleAfter > 0 && value.LastActivityAt != nil && time.Since(*value.LastActivityAt) > staleAfter {
 		status = "problem"
-		reason = "latest Pi session activity is incomplete and older than " + staleAfter.String()
+		reason = "latest conversation activity is incomplete and older than " + staleAfter.String()
 	}
-	warnings := append(append([]string(nil), value.Warnings...), piWarnings...)
+	warnings := append(append([]string(nil), value.Warnings...), conversationWarnings...)
 	if !projection.Projection.Fresh {
 		warnings = append(warnings, "daemon agent observation is stale")
 	}
-	return app.AgentStatusResult{WorkItemID: manifest.ID, Status: status, Reason: reason, ObservedAt: value.ObservedAt, Terminal: value.Terminal, Runtime: value.Runtime, Process: process, PiSession: piStatus, Worktree: worktree, Manifest: manifest, Warnings: warnings}, nil
+	return app.AgentStatusResult{WorkItemID: manifest.ID, Status: status, Reason: reason, ObservedAt: value.ObservedAt, Terminal: value.Terminal, Runtime: value.Runtime, Process: process, Conversation: conversationStatus, Worktree: worktree, Manifest: manifest, Warnings: warnings}, nil
 }
 
 func coordinatorWorkListObserver(client *coordinator.Client) viewapp.Observe {
@@ -83,25 +83,25 @@ func coordinatorViewObservation(value coordinator.AgentObservation) viewapp.Obse
 	return viewapp.Observation{Status: value.Status, Reason: value.Reason, ProcessOnline: value.ProcessOnline, TurnState: value.TurnState, LastActivityAgeSeconds: age, Worktree: worktree, Activity: viewapp.Activity{LastRequestedAt: value.Activity.LastRequestedAt, LastCompletedAt: value.Activity.LastCompletedAt, LastDeferredAt: value.Activity.LastDeferredAt}, Warnings: append([]string(nil), value.Warnings...)}
 }
 
-func coordinatorPiSessionObserver(client *coordinator.Client) agentcore.PiSessionObserver {
-	return func(manifest model.Manifest, now time.Time) (agentcore.PiSessionStatus, []string) {
-		if manifest.RootPiSession == nil {
-			return agentcore.PiSessionStatus{UnavailableReason: "no root Pi session is recorded for this work item"}, nil
+func coordinatorConversationObserver(client *coordinator.Client) agentcore.ConversationObserver {
+	return func(ctx context.Context, manifest model.Manifest, now time.Time) (agentcore.ConversationStatus, []string) {
+		if manifest.PrimaryConversation == nil {
+			return agentcore.ConversationStatus{UnavailableReason: "no primary conversation is recorded for this work item"}, nil
 		}
-		ctx, cancel := context.WithTimeout(context.Background(), 250*time.Millisecond)
+		queryCtx, cancel := context.WithTimeout(ctx, 250*time.Millisecond)
 		defer cancel()
-		projection, err := client.PiSession(ctx, manifest.ID)
+		projection, err := client.Conversation(queryCtx, manifest.ID)
 		if err != nil {
-			return agentcore.PiSessionStatus{ID: manifest.RootPiSession.ID, PathRel: manifest.RootPiSession.Path, Source: "daemon.pi_session", UnavailableReason: "could not read daemon Pi session projection: " + err.Error()}, nil
+			return agentcore.ConversationStatus{ID: manifest.PrimaryConversation.ID, PathRel: manifest.PrimaryConversation.NativeLocator(), Source: "daemon.conversation", UnavailableReason: "could not read daemon conversation projection: " + err.Error()}, nil
 		}
 		if !projection.Found {
-			return agentcore.PiSessionStatus{ID: manifest.RootPiSession.ID, PathRel: manifest.RootPiSession.Path, Source: "daemon.pi_session", UnavailableReason: "daemon has not indexed the Pi session yet"}, projection.Projection.Warnings
+			return agentcore.ConversationStatus{ID: manifest.PrimaryConversation.ID, PathRel: manifest.PrimaryConversation.NativeLocator(), Source: "daemon.conversation", UnavailableReason: "daemon has not indexed the conversation yet"}, projection.Projection.Warnings
 		}
-		index := projection.Session
-		status := agentcore.PiSessionStatus{
-			ID:                    index.SessionID,
-			PathRel:               manifest.RootPiSession.Path,
-			Source:                "daemon.pi_session",
+		index := projection.Conversation
+		status := agentcore.ConversationStatus{
+			ID:                    index.ConversationID,
+			PathRel:               manifest.PrimaryConversation.NativeLocator(),
+			Source:                "daemon.conversation",
 			Exists:                true,
 			SizeBytes:             index.Size,
 			EntriesScanned:        boundedInt(index.EntriesScanned),
@@ -121,11 +121,11 @@ func coordinatorPiSessionObserver(client *coordinator.Client) agentcore.PiSessio
 	}
 }
 
-func coordinatorPiFact(fact *coordinator.PiEventFact) *agentcore.PiSessionEventSummary {
+func coordinatorPiFact(fact *coordinator.ConversationEventFact) *agentcore.ConversationEventSummary {
 	if fact == nil {
 		return nil
 	}
-	return &agentcore.PiSessionEventSummary{Line: boundedInt(fact.Line), Type: fact.Type, Timestamp: fact.Timestamp, Role: fact.Role, StopReason: fact.StopReason, ContentTypes: append([]string(nil), fact.ContentTypes...), Terminal: fact.Terminal, Failed: fact.Failed}
+	return &agentcore.ConversationEventSummary{Line: boundedInt(fact.Line), Type: fact.Type, Timestamp: fact.Timestamp, Role: fact.Role, StopReason: fact.StopReason, ContentTypes: append([]string(nil), fact.ContentTypes...), Terminal: fact.Terminal, Failed: fact.Failed}
 }
 
 func boundedInt(value uint64) int {

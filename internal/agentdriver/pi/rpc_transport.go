@@ -16,8 +16,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	driverprotocol "github.com/regb/workitem/agentdriver/protocol"
 	"github.com/regb/workitem/internal/agent"
-	"github.com/regb/workitem/internal/coordinator"
 )
 
 const rpcReadyCommandID = "wi-runtime-ready"
@@ -32,7 +32,7 @@ type rpcOutput struct {
 }
 
 type queuedLiveEvent struct {
-	event coordinator.RuntimeSemanticEvent
+	event driverprotocol.RuntimeEvent
 	ack   chan struct{}
 }
 
@@ -44,7 +44,6 @@ type nativeRPCTransport struct {
 	ready            bool
 	stopping         bool
 	currentRequestID string
-	liveClient       *coordinator.Client
 	liveQueue        chan queuedLiveEvent
 	liveContext      context.Context
 	liveNonce        string
@@ -59,8 +58,8 @@ func runNativeRPC(ctx context.Context, path string, args, env []string, spec Exe
 	if strings.TrimSpace(spec.ControlSocketPath) == "" {
 		return fmt.Errorf("native Pi RPC requires a control socket path")
 	}
-	if strings.TrimSpace(spec.DaemonSocketPath) == "" {
-		return fmt.Errorf("native Pi RPC requires a daemon socket path")
+	if strings.TrimSpace(spec.EventSocketPath) == "" {
+		return fmt.Errorf("native Pi headless mode requires an event socket path")
 	}
 
 	cmd := exec.CommandContext(ctx, path, args...)
@@ -101,7 +100,6 @@ func runNativeRPC(ctx context.Context, path string, args, env []string, spec Exe
 		handled:   map[string]bool{},
 		liveNonce: hex.EncodeToString(nonceBytes),
 	}
-	transport.liveClient = &coordinator.Client{SocketPath: spec.DaemonSocketPath}
 	transport.liveQueue = make(chan queuedLiveEvent, 256)
 	transport.liveContext = ctx
 	go transport.runLiveSender(ctx)
@@ -256,11 +254,11 @@ func (t *nativeRPCTransport) emitLiveConfirmed(event agent.RuntimeEvent) {
 }
 
 func (t *nativeRPCTransport) queueLiveEvent(event agent.RuntimeEvent, ack chan struct{}) bool {
-	if t.liveClient == nil || t.liveDisabled.Load() || !retainedLiveEvent(event.Type) {
+	if t.liveDisabled.Load() || !retainedLiveEvent(event.Type) {
 		return false
 	}
 	t.ensureRuntimeEventID(&event)
-	semantic := coordinator.RuntimeSemanticEvent{ID: event.EventID, RuntimeID: t.spec.RuntimeID, WorkItemID: t.spec.WorkItemID, Type: event.Type, Timestamp: event.Timestamp, RequestID: event.RequestID, Role: event.Role, ToolName: event.ToolName, Failed: event.Type == agent.EventRuntimeFailed || event.Type == agent.EventCommandRejected}
+	semantic := driverprotocol.RuntimeEvent{ProtocolVersion: driverprotocol.Version, EventID: event.EventID, RuntimeID: t.spec.RuntimeID, WorkItemID: t.spec.WorkItemID, Type: event.Type, Timestamp: event.Timestamp, CommandID: event.CommandID, RequestID: event.RequestID, Role: event.Role, ToolName: event.ToolName, Failed: event.Type == agent.EventRuntimeFailed || event.Type == agent.EventCommandRejected}
 	select {
 	case t.liveQueue <- queuedLiveEvent{event: semantic, ack: ack}:
 		return true
@@ -279,7 +277,7 @@ func (t *nativeRPCTransport) runLiveSender(ctx context.Context) {
 		}
 		for {
 			requestCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
-			_, err := t.liveClient.IngestRuntimeEvent(requestCtx, queued.event)
+			err := driverprotocol.SubmitEvent(requestCtx, t.spec.EventSocketPath, queued.event)
 			cancel()
 			if err == nil {
 				if queued.ack != nil {
@@ -287,12 +285,13 @@ func (t *nativeRPCTransport) runLiveSender(ctx context.Context) {
 				}
 				break
 			}
-			if permanentRuntimeIngestError(err) {
+			var rejected *driverprotocol.EventRejectedError
+			if errors.As(err, &rejected) {
 				t.liveDisabled.Store(true)
 				if queued.ack != nil {
 					close(queued.ack)
 				}
-				fmt.Fprintf(os.Stderr, "wi daemon rejected runtime event %s: %v; restart the older process\n", queued.event.Type, err)
+				fmt.Fprintf(os.Stderr, "wi rejected runtime event %s: %v\n", queued.event.Type, err)
 				return
 			}
 			timer := time.NewTimer(100 * time.Millisecond)
@@ -304,18 +303,6 @@ func (t *nativeRPCTransport) runLiveSender(ctx context.Context) {
 			}
 		}
 	}
-}
-
-func permanentRuntimeIngestError(err error) bool {
-	var protocolErr *coordinator.ProtocolError
-	if errors.As(err, &protocolErr) {
-		return protocolErr.Code == "build_mismatch" || protocolErr.Code == "protocol_mismatch" || protocolErr.Code == "runtime_owner_mismatch"
-	}
-	var compatibilityErr *coordinator.CompatibilityError
-	if errors.As(err, &compatibilityErr) {
-		return compatibilityErr.Kind == "build" || compatibilityErr.Kind == "protocol"
-	}
-	return false
 }
 
 func (t *nativeRPCTransport) ensureRuntimeEventID(event *agent.RuntimeEvent) {

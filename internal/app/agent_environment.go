@@ -20,7 +20,7 @@ func mergeRuntimeEnvironment(base []string, extra map[string]string) []string {
 // that another worktree's .envrc exported removed. A long-lived tmux server
 // captures whatever shell started it, which can leak project secrets into every
 // session; decoding DIRENV_DIFF (from both the server and the invoking pane)
-// identifies exactly those variables. Without tmux (headless RPC), the process
+// identifies exactly those variables. Without tmux (headless), the process
 // environment is the only sensible base.
 func (a *App) direnvBaseEnvironment(ctx context.Context) (map[string]string, []string) {
 	var global map[string]string
@@ -38,7 +38,7 @@ func (a *App) direnvBaseEnvironment(ctx context.Context) (map[string]string, []s
 	}
 	scrub := make([]string, 0, len(managed)+8)
 	for key := range global {
-		if key == "DIRENV_DIFF" || strings.HasPrefix(key, "DIRENV_") || strings.HasPrefix(key, "WI_") || strings.HasPrefix(key, "PI_CODING_AGENT_") || strings.HasPrefix(key, "PI_AGENT_") {
+		if key == "DIRENV_DIFF" || strings.HasPrefix(key, "DIRENV_") || strings.HasPrefix(key, "WI_") {
 			scrub = append(scrub, key)
 			delete(global, key)
 			continue

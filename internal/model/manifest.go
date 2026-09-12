@@ -29,11 +29,12 @@ type Manifest struct {
 	CreatedAt      time.Time `json:"created_at"`
 	UpdatedAt      time.Time `json:"updated_at"`
 
-	Repository    Repository `json:"repository"`
-	Checkout      Checkout   `json:"checkout"`
-	RootPiSession *PiSession `json:"root_pi_session,omitempty"`
-	Labels        []string   `json:"labels"`
-	DeepWork      bool       `json:"deep_work"`
+	Repository          Repository    `json:"repository"`
+	Checkout            Checkout      `json:"checkout"`
+	PrimaryConversation *Conversation `json:"primary_conversation,omitempty"`
+	Agent               string        `json:"agent,omitempty"`
+	Labels              []string      `json:"labels"`
+	DeepWork            bool          `json:"deep_work"`
 }
 
 func (m Manifest) TerminalSessionName() string {
@@ -75,10 +76,14 @@ func (c Checkout) Presence() string {
 	return CheckoutAbsent
 }
 
-type PiSession struct {
-	ID   string `json:"id"`
-	Path string `json:"path"`
+type Conversation struct {
+	Driver  string `json:"driver,omitempty"`
+	ID      string `json:"id"`
+	Locator string `json:"locator,omitempty"`
+	Format  string `json:"format,omitempty"`
 }
+
+func (c Conversation) NativeLocator() string { return c.Locator }
 
 // NewManifest returns a manifest populated with stable defaults.
 func NewManifest(id, slug, title string, labels []string, deepWork bool, now time.Time, repo Repository, checkout Checkout) Manifest {
@@ -93,17 +98,18 @@ func NewManifest(id, slug, title string, labels []string, deepWork bool, now tim
 		normalizedLabels = []string{}
 	}
 	return Manifest{
-		ID:             id,
-		Slug:           slug,
-		Title:          title,
-		State:          StateBacklog,
-		StateChangedAt: now,
-		CreatedAt:      now,
-		UpdatedAt:      now,
-		Repository:     repo,
-		Checkout:       checkout,
-		RootPiSession:  nil,
-		Labels:         normalizedLabels,
-		DeepWork:       deepWork,
+		ID:                  id,
+		Slug:                slug,
+		Title:               title,
+		State:               StateBacklog,
+		StateChangedAt:      now,
+		CreatedAt:           now,
+		UpdatedAt:           now,
+		Repository:          repo,
+		Checkout:            checkout,
+		PrimaryConversation: nil,
+		Agent:               "default",
+		Labels:              normalizedLabels,
+		DeepWork:            deepWork,
 	}
 }

@@ -56,7 +56,8 @@ type ExecSpec struct {
 	WorkItemID        string
 	RuntimeID         string
 	ControlSocketPath string
-	DaemonSocketPath  string
+	EventSocketPath   string
+	Extensions        []string
 }
 
 func New(path string) Client {
@@ -134,6 +135,11 @@ func (c Client) ExecMode(ctx context.Context, spec ExecSpec) error {
 	args, err := runtime.Args(strings.TrimSpace(spec.SessionPath), strings.TrimSpace(bridgePath))
 	if err != nil {
 		return err
+	}
+	for _, extension := range spec.Extensions {
+		if extension = strings.TrimSpace(extension); extension != "" {
+			args = append([]string{"--extension", extension}, args...)
+		}
 	}
 	path := c.Path
 	if path == "" {

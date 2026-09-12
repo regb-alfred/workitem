@@ -11,6 +11,8 @@ import (
 	"testing"
 	"time"
 
+	driverprotocol "github.com/regb/workitem/agentdriver/protocol"
+	pidriver "github.com/regb/workitem/internal/agentdriver/pi"
 	"github.com/regb/workitem/internal/app"
 	"github.com/regb/workitem/internal/cli"
 	"github.com/regb/workitem/internal/coordinator"
@@ -21,15 +23,31 @@ import (
 	tmuxpkg "github.com/regb/workitem/internal/tmux"
 )
 
+type fakeConversationBackend struct{}
+
+func (fakeConversationBackend) NewConversation(_ context.Context, id, _ string, _ json.RawMessage) (model.Conversation, error) {
+	return pidriver.New("pi").NewConversation(id), nil
+}
+func (fakeConversationBackend) ConversationCWD(_ context.Context, path string) (string, error) {
+	return pidriver.New("pi").ConversationCWD(path)
+}
+func (fakeConversationBackend) ForkConversation(ctx context.Context, sourcePath, targetPath, targetCWD string) error {
+	return pidriver.New("pi").ForkConversation(ctx, sourcePath, targetPath, targetCWD)
+}
+func (fakeConversationBackend) ObserveConversation(_ context.Context, _ model.Conversation, path string, now time.Time) (driverprotocol.ConversationObservation, []string, error) {
+	status, warnings := pidriver.ObserveConversationPath(path, now)
+	return status, warnings, nil
+}
+
 type fakeGit struct {
-	info             gitpkg.RepositoryInfo
+	info             model.RepositoryInfo
 	firstDetectedDir string
 	branches         map[string]bool
 	worktrees        map[string]string
 	detectedDir      string
 }
 
-func (f *fakeGit) DetectRepository(ctx context.Context, dir, revision string) (gitpkg.RepositoryInfo, error) {
+func (f *fakeGit) DetectRepository(ctx context.Context, dir, revision string) (model.RepositoryInfo, error) {
 	if f.firstDetectedDir == "" {
 		f.firstDetectedDir = dir
 	}
@@ -161,7 +179,7 @@ func TestGlobalAndCommandHelp(t *testing.T) {
 		{name: "new prompt", args: []string{"new", "--help"}, want: []string{"--prompt <text>", "--agent-mode <mode>", "normal tmux runtime", "does not switch or attach"}},
 		{name: "start new", args: []string{"start", "--help"}, want: []string{"--new", "--home", "--no-default-labels", "minimal item from the supplied title"}},
 		{name: "control help", args: []string{"help", "agent", "control"}, want: []string{"wi agent control", "agent control send", "without consulting derived busy/idle status"}},
-		{name: "nested short flag", args: []string{"workspace", "ensure", "-h"}, want: []string{"wi workspace ensure", "does not create tmux or a Pi conversation"}},
+		{name: "nested short flag", args: []string{"workspace", "ensure", "-h"}, want: []string{"wi workspace ensure", "does not create tmux or a conversation"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			stdout, stderr, application := configuredApp(t)
@@ -276,8 +294,9 @@ func TestNewRepoFlagUsesProvidedRepositoryPath(t *testing.T) {
 	stderr := &bytes.Buffer{}
 	st := store.New(t.TempDir())
 	commit := strings.Repeat("a", 40)
-	fg := &fakeGit{branches: map[string]bool{}, info: gitpkg.RepositoryInfo{Repository: model.Repository{RootAtCreation: "/repos/other", GitCommonDir: "/repos/other/.git", CreatedFromCommit: commit}, Commit: commit}}
+	fg := &fakeGit{branches: map[string]bool{}, info: model.RepositoryInfo{Repository: model.Repository{RootAtCreation: "/repos/other", GitCommonDir: "/repos/other/.git", CreatedFromCommit: commit}, Commit: commit}}
 	application := app.New(st, fg)
+	application.ConversationBackends["pi"] = fakeConversationBackend{}
 	bindTestCoordinator(t, application, st)
 	application.Clock = fixedClock{testutil.Time()}
 	application.NewID = func() (string, error) { return testutil.ID(t, 58), nil }
@@ -298,8 +317,9 @@ func TestNewHomeCLIRecordsBorrowedCheckout(t *testing.T) {
 	st := store.New(t.TempDir())
 	root := t.TempDir()
 	commit := strings.Repeat("a", 40)
-	fg := &fakeGit{branches: map[string]bool{}, info: gitpkg.RepositoryInfo{Repository: model.Repository{RootAtCreation: root, GitCommonDir: filepath.Join(root, ".git"), CreatedFromCommit: commit}, Commit: commit}}
+	fg := &fakeGit{branches: map[string]bool{}, info: model.RepositoryInfo{Repository: model.Repository{RootAtCreation: root, GitCommonDir: filepath.Join(root, ".git"), CreatedFromCommit: commit}, Commit: commit}}
 	application := app.New(st, fg)
+	application.ConversationBackends["pi"] = fakeConversationBackend{}
 	bindTestCoordinator(t, application, st)
 	application.Clock = fixedClock{testutil.Time()}
 	application.NewID = func() (string, error) { return testutil.ID(t, 59), nil }
@@ -491,8 +511,8 @@ func TestNewPromptValidation(t *testing.T) {
 	}{
 		{name: "empty", args: []string{"new", "--prompt", "", "Prompted"}, want: "--prompt requires a non-empty description"},
 		{name: "conflict", args: []string{"new", "--prompt", "work now", "--desc-file", "handoff.md", "Prompted"}, want: "pass either --prompt or --desc-file, not both"},
-		{name: "mode without prompt", args: []string{"new", "--agent-mode", "rpc", "Prompted"}, want: "--agent-mode requires --prompt"},
-		{name: "invalid mode", args: []string{"new", "--agent-mode", "batch", "--prompt", "work now", "Prompted"}, want: "expected tui or rpc"},
+		{name: "mode without prompt", args: []string{"new", "--agent-mode", "headless", "Prompted"}, want: "--agent-mode requires --prompt"},
+		{name: "invalid mode", args: []string{"new", "--agent-mode", "batch", "--prompt", "work now", "Prompted"}, want: "expected tui or headless"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			stdout, stderr, application := configuredApp(t)
@@ -602,7 +622,7 @@ func TestNewRejectsRemovedStartCompositionFlags(t *testing.T) {
 		stdout, stderr, application := configuredApp(t)
 		args := []string{"new", flag}
 		if flag == "--agent-mode" {
-			args = append(args, "rpc")
+			args = append(args, "headless")
 		}
 		args = append(args, "item")
 		if code := cli.Run(context.Background(), args, cli.Config{Stdout: stdout, Stderr: stderr, CWD: t.TempDir(), Env: map[string]string{}, App: application}); code != cli.ExitUsage {
@@ -682,8 +702,9 @@ func TestListOmitsStateAndMarksRepositoryHome(t *testing.T) {
 	st := store.New(t.TempDir())
 	root := t.TempDir()
 	commit := strings.Repeat("a", 40)
-	fg := &fakeGit{branches: map[string]bool{}, info: gitpkg.RepositoryInfo{Repository: model.Repository{RootAtCreation: root, GitCommonDir: filepath.Join(root, ".git"), CreatedFromCommit: commit}, Commit: commit}}
+	fg := &fakeGit{branches: map[string]bool{}, info: model.RepositoryInfo{Repository: model.Repository{RootAtCreation: root, GitCommonDir: filepath.Join(root, ".git"), CreatedFromCommit: commit}, Commit: commit}}
 	application := app.New(st, fg)
+	application.ConversationBackends["pi"] = fakeConversationBackend{}
 	bindTestCoordinator(t, application, st)
 	application.Clock = fixedClock{testutil.Time()}
 	application.NewID = func() (string, error) { return testutil.ID(t, 57), nil }
@@ -705,11 +726,12 @@ func TestListShowsRepositoryLastColumn(t *testing.T) {
 	stderr := &bytes.Buffer{}
 	st := store.New(t.TempDir())
 	commit := strings.Repeat("a", 40)
-	fg := &fakeGit{branches: map[string]bool{}, info: gitpkg.RepositoryInfo{
+	fg := &fakeGit{branches: map[string]bool{}, info: model.RepositoryInfo{
 		Repository: model.Repository{RootAtCreation: t.TempDir(), GitCommonDir: t.TempDir() + "/.git", RemoteURL: "git@example.com:acme/repo.git", CreatedFromCommit: commit},
 		Commit:     commit,
 	}}
 	application := app.New(st, fg)
+	application.ConversationBackends["pi"] = fakeConversationBackend{}
 	bindTestCoordinator(t, application, st)
 	application.Tmux = &fakeTmux{}
 	application.Clock = fixedClock{testutil.Time()}
@@ -767,11 +789,12 @@ func TestListShowsUniqueIDPrefixes(t *testing.T) {
 	stderr := &bytes.Buffer{}
 	st := store.New(t.TempDir())
 	commit := strings.Repeat("a", 40)
-	fg := &fakeGit{branches: map[string]bool{}, info: gitpkg.RepositoryInfo{
+	fg := &fakeGit{branches: map[string]bool{}, info: model.RepositoryInfo{
 		Repository: model.Repository{RootAtCreation: t.TempDir(), GitCommonDir: t.TempDir() + "/.git", CreatedFromCommit: commit},
 		Commit:     commit,
 	}}
 	application := app.New(st, fg)
+	application.ConversationBackends["pi"] = fakeConversationBackend{}
 	bindTestCoordinator(t, application, st)
 	application.Tmux = &fakeTmux{}
 	application.Clock = fixedClock{testutil.Time()}
@@ -937,6 +960,7 @@ func TestMergeJSON(t *testing.T) {
 	runCLIGit(t, repo, "commit", "-m", "initial")
 	st := store.New(t.TempDir())
 	application := app.New(st, gitpkg.New("git"))
+	application.ConversationBackends["pi"] = fakeConversationBackend{}
 	bindTestCoordinator(t, application, st)
 	application.Tmux = &fakeTmux{}
 	application.Clock = fixedClock{testutil.Time()}
@@ -1155,7 +1179,7 @@ func TestCoreWorkspacePrimitiveLeavesLifecycleStateUntouched(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if manifest.State != model.StateBacklog || !manifest.Checkout.Present() || manifest.RootPiSession != nil {
+	if manifest.State != model.StateBacklog || !manifest.Checkout.Present() || manifest.PrimaryConversation != nil {
 		t.Fatalf("workspace ensure created non-worktree resources: %+v", manifest)
 	}
 	if len(application.Tmux.(*fakeTmux).ensured) != 0 {
@@ -1166,7 +1190,7 @@ func TestCoreWorkspacePrimitiveLeavesLifecycleStateUntouched(t *testing.T) {
 	if code := cli.Run(context.Background(), []string{"--json", "terminal", "ensure", "--item", created.Manifest.ID}, cfg); code != cli.ExitOK {
 		t.Fatalf("terminal ensure code=%d stderr=%s", code, stderr.String())
 	}
-	if manifest, err = application.Store.LoadManifest(created.Manifest.ID); err != nil || manifest.RootPiSession != nil {
+	if manifest, err = application.Store.LoadManifest(created.Manifest.ID); err != nil || manifest.PrimaryConversation != nil {
 		t.Fatalf("terminal ensure created an agent conversation: manifest=%+v err=%v", manifest, err)
 	}
 	stdout.Reset()
@@ -1243,7 +1267,7 @@ func configuredApp(t *testing.T) (*bytes.Buffer, *bytes.Buffer, *app.App) {
 	root := t.TempDir()
 	st := store.New(root)
 	commit := strings.Repeat("a", 40)
-	fg := &fakeGit{branches: map[string]bool{}, info: gitpkg.RepositoryInfo{
+	fg := &fakeGit{branches: map[string]bool{}, info: model.RepositoryInfo{
 		Repository: model.Repository{
 			RootAtCreation:    t.TempDir(),
 			GitCommonDir:      t.TempDir() + "/.git",
@@ -1253,6 +1277,7 @@ func configuredApp(t *testing.T) (*bytes.Buffer, *bytes.Buffer, *app.App) {
 		Commit: commit,
 	}}
 	application := app.New(st, fg)
+	application.ConversationBackends["pi"] = fakeConversationBackend{}
 	socket := filepath.Join(testutil.ShortTempDir(t), "daemon.sock")
 	server, err := coordinator.NewServer(root, socket)
 	if err != nil {

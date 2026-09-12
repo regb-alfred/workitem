@@ -84,7 +84,7 @@ func RuntimeEnvironment(ctx context.Context, direnv Direnv, m model.Manifest, au
 		if key == "TMUX" || key == "TMUX_PANE" || strings.HasPrefix(key, "DIRENV_") {
 			continue
 		}
-		if (strings.HasPrefix(key, "WI_") && key != "WI_LIST_LABELS" && key != "WI_ITEM_DEFAULT_LABELS") || key == "PI_CODING_AGENT_SESSION_DIR" {
+		if strings.HasPrefix(key, "WI_") && key != "WI_LIST_LABELS" && key != "WI_ITEM_DEFAULT_LABELS" {
 			warnings = append(warnings, fmt.Sprintf("ignored reserved direnv variable %s", key))
 			continue
 		}

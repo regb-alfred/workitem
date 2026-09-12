@@ -32,10 +32,8 @@ export default function wiBridge(pi: ExtensionAPI) {
   const runtimeId = process.env.WI_AGENT_RUNTIME_ID ?? "";
   const mode = process.env.WI_AGENT_MODE ?? "";
   const controlSocketPath = process.env.WI_AGENT_CONTROL_SOCKET ?? "";
-  const daemonSocketPath = process.env.WI_DAEMON_SOCKET ?? "";
-  const daemonProtocolVersion = Number(process.env.WI_DAEMON_PROTOCOL ?? "0");
-  const daemonBuildIdentity = process.env.WI_BUILD_IDENTITY ?? "";
-  if (!workItemId || !runtimeId || !controlSocketPath || !daemonSocketPath || daemonProtocolVersion <= 0 || !daemonBuildIdentity) return;
+  const eventSocketPath = process.env.WI_AGENT_EVENT_SOCKET ?? "";
+  if (!workItemId || !runtimeId || !controlSocketPath || !eventSocketPath) return;
 
   let context: ExtensionContext | undefined;
   let controlServer: Server | undefined;
@@ -58,11 +56,10 @@ export default function wiBridge(pi: ExtensionAPI) {
   ]);
 
   const drainRuntimeQueue = () => {
-    if (!daemonSocketPath || runtimeEventsDisabled || sendingRuntimeEvent || runtimeQueue.length === 0) return;
+    if (!eventSocketPath || runtimeEventsDisabled || sendingRuntimeEvent || runtimeQueue.length === 0) return;
     sendingRuntimeEvent = true;
     const event = runtimeQueue[0];
-    const requestId = `runtime-event:${String(event.id)}`;
-    const socket = createConnection(daemonSocketPath);
+    const socket = createConnection(eventSocketPath);
     let response = "";
     let finished = false;
     const retry = () => {
@@ -75,35 +72,28 @@ export default function wiBridge(pi: ExtensionAPI) {
       }
     };
     socket.setTimeout(2000, retry);
-    socket.on("connect", () => socket.write(`${JSON.stringify({ protocol_version: daemonProtocolVersion, build_identity: daemonBuildIdentity, id: requestId, method: "runtime_event", payload: event })}\n`));
+    socket.on("connect", () => socket.write(`${JSON.stringify(event)}\n`));
     socket.on("data", (chunk) => {
       response += chunk.toString();
       const newline = response.indexOf("\n");
       if (newline < 0 || finished) return;
-      let decoded: { ok?: boolean; error?: { code?: string; message?: string } };
+      let decoded: { accepted?: boolean; error?: string };
       try {
         decoded = JSON.parse(response.slice(0, newline));
       } catch { retry(); return; }
-      if (!decoded.ok) {
-        const code = decoded.error?.code ?? "unknown_error";
-        const message = decoded.error?.message ?? "daemon rejected runtime event";
-        lastDaemonRejection = `${code}: ${message}`;
+      if (!decoded.accepted) {
+        const message = decoded.error ?? "wi rejected runtime event";
+        lastDaemonRejection = message;
         const now = Date.now();
         if (now - rejectionLogCooldown > 5000) {
           rejectionLogCooldown = now;
-          console.error(`wi daemon rejected runtime event ${String(event.type)} (${code}): ${message}`);
+          console.error(`wi rejected runtime event ${String(event.type)}: ${message}`);
         }
-        if (code === "build_mismatch" || code === "protocol_mismatch" || code === "runtime_owner_mismatch") {
-          // This runtime cannot become compatible without a restart. Report the
-          // rejection once, then stop sending instead of retrying forever.
-          finished = true;
-          socket.destroy();
-          runtimeQueue.length = 0;
-          sendingRuntimeEvent = false;
-          runtimeEventsDisabled = true;
-          return;
-        }
-        retry();
+        finished = true;
+        socket.destroy();
+        runtimeQueue.length = 0;
+        sendingRuntimeEvent = false;
+        runtimeEventsDisabled = true;
         return;
       }
       finished = true;
@@ -117,17 +107,19 @@ export default function wiBridge(pi: ExtensionAPI) {
   };
 
   const queueRuntimeEvent = (record: Record<string, unknown>) => {
-    if (!daemonSocketPath || runtimeEventsDisabled || !retainedRuntimeTypes.has(String(record.type))) return;
+    if (!eventSocketPath || runtimeEventsDisabled || !retainedRuntimeTypes.has(String(record.type))) return;
     if (runtimeQueue.length >= 1024) {
       const suffix = lastDaemonRejection ? ` (last rejection: ${lastDaemonRejection})` : "";
       throw new Error(`wi daemon runtime-event buffer is full; refusing to drop semantic events${suffix}`);
     }
     runtimeQueue.push({
-      id: record.event_id,
+      protocol_version: protocolVersion,
+      event_id: record.event_id,
       runtime_id: runtimeId,
       work_item_id: workItemId,
       type: record.type,
       timestamp: record.timestamp,
+      command_id: record.command_id,
       request_id: record.request_id,
       role: record.role,
       tool_name: record.tool_name,

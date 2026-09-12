@@ -16,7 +16,7 @@ type EnsureAgentRuntimeResult struct {
 	WorkItemID   string             `json:"work_item_id"`
 	Created      bool               `json:"created"`
 	Runtime      model.AgentRuntime `json:"runtime"`
-	Conversation model.PiSession    `json:"conversation"`
+	Conversation model.Conversation `json:"conversation"`
 	Capabilities agent.Capabilities `json:"capabilities"`
 	Terminal     *TerminalResult    `json:"terminal,omitempty"`
 	Warnings     []string           `json:"warnings"`
@@ -55,10 +55,10 @@ func (a *App) EnsureAgentRuntime(ctx context.Context, opts ResolveOptions, mode 
 		if ownership.Mode != string(mode) {
 			return EnsureAgentRuntimeResult{}, fmt.Errorf("agent runtime %s is active in %s mode; stop it before starting %s mode", existing.ID, existing.Mode, mode)
 		}
-		if m.RootPiSession == nil {
+		if m.PrimaryConversation == nil {
 			return EnsureAgentRuntimeResult{}, fmt.Errorf("active agent runtime %s has no durable root conversation", existing.ID)
 		}
-		session := *m.RootPiSession
+		session := *m.PrimaryConversation
 		pathWarnings, err := a.validateRuntimeCheckout(ctx, m, *existing)
 		if err != nil {
 			return EnsureAgentRuntimeResult{}, err
@@ -67,7 +67,7 @@ func (a *App) EnsureAgentRuntime(ctx context.Context, opts ResolveOptions, mode 
 			return EnsureAgentRuntimeResult{}, err
 		}
 		warnings = append(warnings, pathWarnings...)
-		result := EnsureAgentRuntimeResult{WorkItemID: m.ID, Runtime: *existing, Conversation: session, Capabilities: agent.CapabilitiesForMode(mode), Warnings: warnings}
+		result := EnsureAgentRuntimeResult{WorkItemID: m.ID, Runtime: *existing, Conversation: session, Capabilities: existing.Capabilities, Warnings: warnings}
 		if mode == agent.ModeTUI {
 			result.Terminal = &TerminalResult{WorkItemID: m.ID, Session: m.TerminalSessionName(), Checkout: m.Checkout}
 		}
@@ -89,7 +89,7 @@ func (a *App) EnsureAgentRuntime(ctx context.Context, opts ResolveOptions, mode 
 			return EnsureAgentRuntimeResult{}, err
 		}
 		warnings = append(warnings, terminal.Warnings...)
-		launchWarnings, err := a.launchPiSessionInTmuxWithEnvironment(ctx, m, session, true, runtimeEnv, scrub)
+		launchWarnings, err := a.launchAgentInTmuxWithEnvironment(ctx, m, session, true, runtimeEnv, scrub)
 		if err != nil {
 			return EnsureAgentRuntimeResult{}, err
 		}
@@ -101,12 +101,12 @@ func (a *App) EnsureAgentRuntime(ctx context.Context, opts ResolveOptions, mode 
 		if runtime == nil {
 			return EnsureAgentRuntimeResult{}, fmt.Errorf("TUI runtime was launched but runtime metadata is unavailable")
 		}
-		return EnsureAgentRuntimeResult{WorkItemID: m.ID, Created: true, Runtime: *runtime, Conversation: session, Capabilities: agent.CapabilitiesForMode(mode), Terminal: &terminal, Warnings: warnings}, nil
+		return EnsureAgentRuntimeResult{WorkItemID: m.ID, Created: true, Runtime: *runtime, Conversation: session, Capabilities: runtime.Capabilities, Terminal: &terminal, Warnings: warnings}, nil
 	}
 	if a.AgentRuntimeLauncher == nil {
 		return EnsureAgentRuntimeResult{}, fmt.Errorf("agent runtime launcher is not configured")
 	}
-	if err := a.ensurePiSessionNotRunning(m, session); err != nil {
+	if err := a.ensureConversationNotRunning(m, session); err != nil {
 		return EnsureAgentRuntimeResult{}, err
 	}
 	runtimeEnv, _, environmentWarnings, err := a.agentRuntimeEnvironment(ctx, m)
@@ -125,7 +125,7 @@ func (a *App) EnsureAgentRuntime(ctx context.Context, opts ResolveOptions, mode 
 	cwd := agentcore.ExecutionCWD(m, session)
 	pid, err := a.AgentRuntimeLauncher.Start(agent.LaunchSpec{
 		Path:    self,
-		Args:    []string{"agent", "exec", "--item", m.ID, "--session", session.ID, "--runtime", runtime.ID, "--mode", string(mode)},
+		Args:    []string{"agent", "exec", "--item", m.ID, "--conversation", session.ID, "--runtime", runtime.ID, "--mode", string(mode)},
 		CWD:     cwd,
 		Env:     mergeRuntimeEnvironment(os.Environ(), runtimeEnv),
 		LogPath: a.runtimeLogPath(m.ID, &runtime),
@@ -136,6 +136,14 @@ func (a *App) EnsureAgentRuntime(ctx context.Context, opts ResolveOptions, mode 
 		_ = a.Store.SaveAgentRuntime(ctx, m.ID, runtime)
 		return EnsureAgentRuntimeResult{}, err
 	}
+	current, err := a.Store.LoadAgentRuntime(m.ID)
+	if err != nil {
+		return EnsureAgentRuntimeResult{}, err
+	}
+	if current == nil || current.ID != runtime.ID {
+		return EnsureAgentRuntimeResult{}, fmt.Errorf("agent runtime ownership changed during startup")
+	}
+	runtime = *current
 	runtime.HostPID = pid
 	if a.Process == nil {
 		return EnsureAgentRuntimeResult{}, fmt.Errorf("process inspector is not configured")
@@ -150,7 +158,7 @@ func (a *App) EnsureAgentRuntime(ctx context.Context, opts ResolveOptions, mode 
 	if err := a.Store.SaveAgentRuntime(ctx, m.ID, runtime); err != nil {
 		return EnsureAgentRuntimeResult{}, err
 	}
-	return EnsureAgentRuntimeResult{WorkItemID: m.ID, Created: true, Runtime: runtime, Conversation: session, Capabilities: agent.CapabilitiesForMode(mode), Warnings: warnings}, nil
+	return EnsureAgentRuntimeResult{WorkItemID: m.ID, Created: true, Runtime: runtime, Conversation: session, Capabilities: runtime.Capabilities, Warnings: warnings}, nil
 }
 
 func (a *App) validateRuntimeCheckout(ctx context.Context, m model.Manifest, runtime model.AgentRuntime) ([]string, error) {
@@ -189,7 +197,7 @@ func (a *App) validateRuntimeCheckout(ctx context.Context, m model.Manifest, run
 	return nil, nil
 }
 
-func (a *App) prepareAgentRuntime(ctx context.Context, m model.Manifest, session model.PiSession, mode agent.Mode) (model.AgentRuntime, error) {
+func (a *App) prepareAgentRuntime(ctx context.Context, m model.Manifest, session model.Conversation, mode agent.Mode) (model.AgentRuntime, error) {
 	return a.primaryAgentService().Prepare(ctx, m, session, mode)
 }
 
