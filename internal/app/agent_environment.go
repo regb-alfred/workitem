@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	agentcore "github.com/regb/workitem/internal/app/core/primaryagent"
@@ -11,8 +12,8 @@ import (
 	"github.com/regb/workitem/internal/model"
 )
 
-func mergeRuntimeEnvironment(base []string, extra map[string]string) []string {
-	return agentcore.MergeEnvironment(base, extra)
+func exactRuntimeEnvironment(environment map[string]string) []string {
+	return agentcore.MergeEnvironment(nil, environment)
 }
 
 // direnvBaseEnvironment returns the clean environment that a tmux session
@@ -38,7 +39,7 @@ func (a *App) direnvBaseEnvironment(ctx context.Context) (map[string]string, []s
 	}
 	scrub := make([]string, 0, len(managed)+8)
 	for key := range global {
-		if key == "DIRENV_DIFF" || strings.HasPrefix(key, "DIRENV_") || strings.HasPrefix(key, "WI_") {
+		if key == "TMUX" || key == "TMUX_PANE" || key == "DIRENV_DIFF" || strings.HasPrefix(key, "DIRENV_") || strings.HasPrefix(key, "WI_") {
 			scrub = append(scrub, key)
 			delete(global, key)
 			continue
@@ -75,10 +76,37 @@ func envFromSlice(entries []string) map[string]string {
 	return env
 }
 
+// agentRuntimeEnvironment returns the complete environment for an item runtime.
+// Launchers must use it as a replacement, never as an overlay on their own
+// process environment.
 func (a *App) agentRuntimeEnvironment(ctx context.Context, m model.Manifest) (map[string]string, []string, []string, error) {
 	base, scrub := a.direnvBaseEnvironment(ctx)
-	env, warnings, err := agentcore.RuntimeEnvironment(ctx, a.Direnv, m, a.direnvAutoTrusts(m.Repository), a.ApproveDirenv, base)
-	return env, scrub, warnings, err
+	overrides, warnings, err := agentcore.RuntimeEnvironment(ctx, a.Direnv, m, a.direnvAutoTrusts(m.Repository), a.ApproveDirenv, base)
+	if err != nil {
+		return nil, scrub, warnings, err
+	}
+	for key, value := range overrides {
+		base[key] = value
+	}
+	if a.Tmux != nil {
+		if current, inspectErr := a.Tmux.SessionEnvironment(ctx, m.TerminalSessionName()); inspectErr == nil {
+			remove := make(map[string]bool, len(scrub)+len(current))
+			for _, key := range scrub {
+				remove[key] = true
+			}
+			for key := range current {
+				if _, present := base[key]; !present {
+					remove[key] = true
+				}
+			}
+			scrub = scrub[:0]
+			for key := range remove {
+				scrub = append(scrub, key)
+			}
+			slices.Sort(scrub)
+		}
+	}
+	return base, scrub, warnings, nil
 }
 
 func (a *App) direnvAutoTrusts(repo model.Repository) bool {

@@ -8,7 +8,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strings"
 
 	driverprotocol "github.com/regb/workitem/agentdriver/protocol"
 	"github.com/regb/workitem/internal/agent"
@@ -80,15 +79,9 @@ func launch(ctx context.Context, request driverprotocol.LaunchRequest, reply fun
 	if err := reply(driverprotocol.Ready{ProtocolVersion: driverprotocol.Version, BackendPath: resolved, Capabilities: driverprotocol.Capabilities{NativeTUI: capabilities.NativeTUI, Headless: capabilities.Headless, Streaming: capabilities.Streaming, Prompt: true, Steering: capabilities.Steering, FollowUp: capabilities.FollowUp, Cancel: capabilities.Cancel, Monitor: capabilities.Monitor}}); err != nil {
 		return err
 	}
-	environment := map[string]string{}
-	for _, value := range os.Environ() {
-		key, _, ok := strings.Cut(value, "=")
-		if ok && (strings.HasPrefix(key, "PI_CODING_AGENT_") || strings.HasPrefix(key, "PI_AGENT_")) {
-			environment[key] = ""
-		}
-	}
-	for key, value := range request.Environment {
-		environment[key] = value
+	environment := request.Environment
+	if environment == nil {
+		environment = map[string]string{}
 	}
 	environment["PI_CODING_AGENT_SESSION_DIR"] = filepath.Dir(request.Conversation.Locator)
 	client := New(resolved)

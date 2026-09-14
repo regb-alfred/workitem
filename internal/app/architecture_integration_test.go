@@ -315,6 +315,16 @@ func (f *fakeRuntimeLauncher) Start(spec agent.LaunchSpec) (int, error) {
 	return f.pid, f.err
 }
 
+func envValue(environment []string, key string) string {
+	prefix := key + "="
+	for _, entry := range environment {
+		if strings.HasPrefix(entry, prefix) {
+			return strings.TrimPrefix(entry, prefix)
+		}
+	}
+	return ""
+}
+
 type fixedClock struct{ t time.Time }
 
 func (c fixedClock) Now() time.Time { return c.t }
@@ -1723,11 +1733,12 @@ func TestStartRecreatedTmuxResumesPrimaryConversation(t *testing.T) {
 }
 
 func TestHeadlessRuntimeUsesNativeControlWithoutTmux(t *testing.T) {
+	t.Setenv("PI_SESSION_ID", "parent-session")
 	st := store.New(t.TempDir())
 	itemID := testutil.ID(t, 111)
 	sessionID := testutil.ID(t, 112)
 	fg := newFakeGit(t)
-	ft := &fakeTmux{}
+	ft := &fakeTmux{env: map[string]string{"HOME": "/home/test", "PATH": "/clean/bin"}}
 	fp := &fakeProcess{alive: map[int]bool{4321: true}}
 	launcher := &fakeRuntimeLauncher{pid: 4321}
 	application := newTestApp(st, fg)
@@ -1759,6 +1770,12 @@ func TestHeadlessRuntimeUsesNativeControlWithoutTmux(t *testing.T) {
 	}
 	if strings.Join(launcher.spec.Args, " ") != strings.Join([]string{"agent", "exec", "--item", itemID, "--conversation", sessionID, "--runtime", ensured.Runtime.ID, "--mode", "headless"}, " ") {
 		t.Fatalf("launcher args = %+v", launcher.spec.Args)
+	}
+	if got := envValue(launcher.spec.Env, "PATH"); got != "/clean/bin" {
+		t.Fatalf("runtime PATH = %q", got)
+	}
+	if got := envValue(launcher.spec.Env, "PI_SESSION_ID"); got != "" {
+		t.Fatalf("runtime inherited PI_SESSION_ID %q", got)
 	}
 	if _, err := application.SwitchWorkItem(context.Background(), app.ResolveOptions{Selector: itemID}, false); err == nil || !strings.Contains(err.Error(), "currently owns the conversation in headless mode") {
 		t.Fatalf("expected safe headless-to-TUI handoff refusal, got %v", err)

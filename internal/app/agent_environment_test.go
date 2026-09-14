@@ -5,6 +5,7 @@ import (
 	"compress/zlib"
 	"context"
 	"encoding/base64"
+	"slices"
 	"strings"
 	"testing"
 
@@ -36,7 +37,10 @@ func (d *runtimeDirenv) Environment(_ context.Context, _ string, base map[string
 	return d.env, nil
 }
 
-type fakeBaseTmux struct{ global map[string]string }
+type fakeBaseTmux struct {
+	global  map[string]string
+	session map[string]string
+}
 
 func (f fakeBaseTmux) GlobalEnvironment(context.Context) (map[string]string, error) {
 	return f.global, nil
@@ -53,8 +57,8 @@ func (fakeBaseTmux) AttachOrSwitch(context.Context, string, bool) error { return
 func (fakeBaseTmux) KillSession(context.Context, string) error          { return nil }
 func (fakeBaseTmux) KillSessionAsync(context.Context, string) error     { return nil }
 func (fakeBaseTmux) CurrentSession(context.Context) (string, error)     { return "", nil }
-func (fakeBaseTmux) SessionEnvironment(context.Context, string) (map[string]string, error) {
-	return nil, nil
+func (f fakeBaseTmux) SessionEnvironment(context.Context, string) (map[string]string, error) {
+	return f.session, nil
 }
 
 func encodeTestDirenvDiff(t *testing.T) string {
@@ -154,12 +158,28 @@ func TestDirenvBaseEnvironmentScrubsServerAndPanePollution(t *testing.T) {
 	}
 }
 
+func TestAgentRuntimeEnvironmentRemovesValuesLeftByEarlierLaunch(t *testing.T) {
+	path := t.TempDir()
+	d := &runtimeDirenv{status: direnvpkg.Status{Found: true, Allowed: true, RCPath: path + "/.envrc"}, env: map[string]string{"PI_CODING_AGENT_DIR": "/profiles/target"}}
+	a := &App{Direnv: d, Tmux: fakeBaseTmux{global: map[string]string{"HOME": "/home/user", "PATH": "/bin"}, session: map[string]string{"OLD_PROJECT_TOKEN": "secret", "PI_CODING_AGENT_DIR": "/profiles/old"}}}
+	env, scrub, _, err := a.agentRuntimeEnvironment(context.Background(), model.Manifest{ID: "01KZYHGDCECSFS4BJ2SNTQP49V", Checkout: model.Checkout{Path: &path}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if env["PI_CODING_AGENT_DIR"] != "/profiles/target" {
+		t.Fatalf("profile=%q", env["PI_CODING_AGENT_DIR"])
+	}
+	if !slices.Contains(scrub, "OLD_PROJECT_TOKEN") || slices.Contains(scrub, "PI_CODING_AGENT_DIR") {
+		t.Fatalf("scrub=%v", scrub)
+	}
+}
+
 func TestAgentRuntimeEnvironmentWarnsWithoutEvaluatingUntrustedEnvrc(t *testing.T) {
 	path := t.TempDir()
 	d := &runtimeDirenv{status: direnvpkg.Status{Found: true, Allowed: false, RCPath: path + "/.envrc"}}
 	a := &App{Direnv: d}
 	env, _, warnings, err := a.agentRuntimeEnvironment(context.Background(), model.Manifest{Checkout: model.Checkout{Path: &path}})
-	if err != nil || len(env) != 0 || len(warnings) != 1 || !strings.Contains(warnings[0], "not trusted") || d.envCalls != 0 {
-		t.Fatalf("env=%v warnings=%v calls=%d", env, warnings, d.envCalls)
+	if err != nil || env["PATH"] == "" || env["TOKEN"] != "" || len(warnings) != 1 || !strings.Contains(warnings[0], "not trusted") || d.envCalls != 0 {
+		t.Fatalf("token=%q warnings=%v calls=%d", env["TOKEN"], warnings, d.envCalls)
 	}
 }

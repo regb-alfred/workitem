@@ -124,17 +124,14 @@ func (c Client) EnsureSession(ctx context.Context, spec SessionSpec) (bool, erro
 	return true, nil
 }
 
-// applySessionEnvironment sets the requested environment on a session and masks
-// any scrub variables that are not part of it. The tmux server's global
-// environment can carry secrets exported by whichever shell started the server;
-// panes silently inherit those globals, so masking them with an empty value on
-// the session is the only reliable way to keep them out of worktree panes.
+// applySessionEnvironment sets the requested environment on a session and marks
+// scrubbed variables for removal from newly started processes.
 func (c Client) applySessionEnvironment(ctx context.Context, name string, env map[string]string, scrub []string) error {
 	for _, key := range scrub {
 		if _, present := env[key]; present {
 			continue
 		}
-		if _, err := c.run(ctx, []string{"set-environment", "-t", name, key, ""}, nil); err != nil {
+		if _, err := c.run(ctx, []string{"set-environment", "-r", "-t", name, key}, nil); err != nil {
 			return err
 		}
 	}

@@ -3,7 +3,6 @@ package app
 import (
 	"context"
 	"fmt"
-	"os"
 	"strings"
 	"time"
 
@@ -127,7 +126,7 @@ func (a *App) EnsureAgentRuntime(ctx context.Context, opts ResolveOptions, mode 
 		Path:    self,
 		Args:    []string{"agent", "exec", "--item", m.ID, "--conversation", session.ID, "--runtime", runtime.ID, "--mode", string(mode)},
 		CWD:     cwd,
-		Env:     mergeRuntimeEnvironment(os.Environ(), runtimeEnv),
+		Env:     exactRuntimeEnvironment(runtimeEnv),
 		LogPath: a.runtimeLogPath(m.ID, &runtime),
 	})
 	if err != nil {

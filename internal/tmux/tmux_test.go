@@ -97,7 +97,7 @@ func TestEnsureSessionCommandConstruction(t *testing.T) {
 	want := [][]string{
 		{"has-session", "-t", "wi-fix-01K1AB"},
 		{"new-session", "-d", "-s", "wi-fix-01K1AB", "-c", "/tmp/worktree", "-n", "agent"},
-		{"set-environment", "-t", "wi-fix-01K1AB", "STALE_PROJECT_VAR", ""},
+		{"set-environment", "-r", "-t", "wi-fix-01K1AB", "STALE_PROJECT_VAR"},
 		{"set-environment", "-t", "wi-fix-01K1AB", "WI_DIR", "/tmp/item"},
 		{"set-environment", "-t", "wi-fix-01K1AB", "WI_ID", "01K1ABCDE0000000000000000"},
 		{"set-environment", "-t", "wi-fix-01K1AB", "WI_REPOSITORY", "/tmp/repo"},
