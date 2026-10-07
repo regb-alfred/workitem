@@ -17,7 +17,7 @@ import (
 )
 
 const (
-	SchemaVersion = 3
+	SchemaVersion = 4
 	DatabaseFile  = "wi.db"
 )
 

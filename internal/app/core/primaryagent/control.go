@@ -44,6 +44,13 @@ func (s *Service) Control(ctx context.Context, opts ControlOptions) (ControlResu
 		return ControlResult{}, fmt.Errorf("agent runtime control channel is not active; restart the agent runtime")
 	}
 	commandType := strings.TrimSpace(opts.CommandType)
+	// Stopping a stale owner must remain possible, but it cannot accept new work.
+	if commandType != agent.CommandAbort && commandType != agent.CommandShutdown && runtime.WorkspaceClaimID != "" {
+		claim := m.Checkout.Claim
+		if claim == nil || claim.ID != runtime.WorkspaceClaimID || claim.Generation != runtime.WorkspaceClaimGeneration {
+			return ControlResult{}, fmt.Errorf("agent runtime %s belongs to a superseded workspace claim", runtime.ID)
+		}
+	}
 	switch commandType {
 	case agent.CommandPrompt, agent.CommandSteer, agent.CommandFollowUp:
 		if strings.TrimSpace(opts.Message) == "" {

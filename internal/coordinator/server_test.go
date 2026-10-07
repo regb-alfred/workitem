@@ -117,7 +117,7 @@ func TestAgentSocketCreatesOnlySafeBacklogItems(t *testing.T) {
 		t.Fatalf("agent status = %+v", status)
 	}
 	commit := strings.Repeat("a", 40)
-	manifest := model.NewManifest(importTestID, "agent-filed", "Agent filed", nil, false, time.Now().UTC(), model.Repository{RootAtCreation: "/repo", GitCommonDir: "/repo/.git", CreatedFromCommit: commit}, model.Checkout{Kind: model.WorkspaceKindManagedSlot, Branch: model.ItemBranchName("agent-filed", importTestID)})
+	manifest := model.NewManifest(importTestID, "agent-filed", "Agent filed", nil, false, time.Now().UTC(), model.Repository{RootAtCreation: "/repo", GitCommonDir: "/repo/.git", CreatedFromCommit: commit}, model.Checkout{Specification: model.CheckoutSpecification{Kind: model.WorkspaceKindManagedSlot, Branch: model.ItemBranchName("agent-filed", importTestID)}})
 	command := CreateItemCommand{ID: "agent-create", ProtocolVersion: ProtocolVersion, Manifest: manifest, DescriptionDigest: DescriptionDigest("follow-up"), Actor: "user", CreatedAt: manifest.CreatedAt}
 	created, err := agentClient.CreateItem(ctx, CreateItemRequest{Command: command, Description: "follow-up"})
 	if err != nil {
@@ -130,23 +130,24 @@ func TestAgentSocketCreatesOnlySafeBacklogItems(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(agentProjection.Manifests) != 1 || agentProjection.Manifests[0].Repository.RootAtCreation != "" || agentProjection.Manifests[0].Repository.GitCommonDir != "" || agentProjection.Manifests[0].Checkout.Branch != "" || agentProjection.Manifests[0].PrimaryConversation != nil {
+	if len(agentProjection.Manifests) != 1 || agentProjection.Manifests[0].Repository.RootAtCreation != "" || agentProjection.Manifests[0].Repository.GitCommonDir != "" || agentProjection.Manifests[0].Checkout.Specification.Branch != "" || agentProjection.Manifests[0].PrimaryConversation != nil {
 		t.Fatalf("agent projection exposed source, checkout, or conversation details: %+v", agentProjection.Manifests)
 	}
 	operatorProjection, err := operator.ManifestProjection(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(operatorProjection.Manifests) != 1 || operatorProjection.Manifests[0].Repository.RootAtCreation != "/repo" || operatorProjection.Manifests[0].Checkout.Branch == "" {
+	if len(operatorProjection.Manifests) != 1 || operatorProjection.Manifests[0].Repository.RootAtCreation != "/repo" || operatorProjection.Manifests[0].Checkout.Specification.Branch == "" {
 		t.Fatalf("operator projection was unexpectedly sanitized: %+v", operatorProjection.Manifests)
 	}
 	if err := agentClient.Shutdown(ctx); err == nil || !strings.Contains(err.Error(), "does not allow shutdown") {
 		t.Fatalf("agent shutdown error = %v", err)
 	}
 	homeID := "01K00000000000000000000001"
-	home := model.NewManifest(homeID, "unsafe-home", "Unsafe home", nil, false, time.Now().UTC(), manifest.Repository, model.Checkout{Kind: model.WorkspaceKindRepositoryHome, Branch: "main"})
+	home := model.NewManifest(homeID, "unsafe-home", "Unsafe home", nil, false, time.Now().UTC(), manifest.Repository, model.Checkout{Specification: model.CheckoutSpecification{Kind: model.WorkspaceKindRepositoryHome, Branch: "main"}})
 	homePath := "/repo"
-	home.Checkout.Path = &homePath
+	home.Checkout.ClaimGeneration = 1
+	home.Checkout.Claim = &model.WorkspaceClaim{ID: "test-claim", Generation: 1, Executor: model.ExecutorLocal, Path: homePath}
 	homeCommand := CreateItemCommand{ID: "agent-home", ProtocolVersion: ProtocolVersion, Manifest: home, DescriptionDigest: DescriptionDigest("unsafe"), Actor: "user", CreatedAt: home.CreatedAt}
 	if _, err := agentClient.CreateItem(ctx, CreateItemRequest{Command: homeCommand, Description: "unsafe"}); err == nil || !strings.Contains(err.Error(), "managed-slot") {
 		t.Fatalf("agent home creation error = %v", err)

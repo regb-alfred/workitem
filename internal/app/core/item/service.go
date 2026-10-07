@@ -224,17 +224,20 @@ func (s *Service) NewWorkItem(ctx context.Context, opts NewOptions) (NewResult, 
 	if err != nil {
 		return NewResult{}, err
 	}
-	checkout := model.Checkout{Kind: model.WorkspaceKindManagedSlot, Branch: model.ItemBranchName(slug, id)}
+	checkout := model.Checkout{Specification: model.CheckoutSpecification{Kind: model.WorkspaceKindManagedSlot, Branch: model.ItemBranchName(slug, id)}}
 	if opts.Home {
 		path := home.Path
-		checkout = model.Checkout{Kind: model.WorkspaceKindRepositoryHome, Path: &path, Branch: defaultBranch}
+		checkout = model.NewCheckout(model.WorkspaceKindRepositoryHome, model.ExecutorLocal, defaultBranch)
+		if _, err := checkout.AssignNewClaim(model.ExecutorLocal, model.RepositoryKey(repo.Repository), "", path); err != nil {
+			return NewResult{}, err
+		}
 	} else {
-		exists, err := s.git.BranchExists(ctx, repo.Repository.RootAtCreation, checkout.Branch)
+		exists, err := s.git.BranchExists(ctx, repo.Repository.RootAtCreation, checkout.Specification.Branch)
 		if err != nil {
 			return NewResult{}, err
 		}
 		if exists {
-			return NewResult{}, fmt.Errorf("implementation branch %q already exists", checkout.Branch)
+			return NewResult{}, fmt.Errorf("implementation branch %q already exists", checkout.Specification.Branch)
 		}
 	}
 	now := s.now()
@@ -243,7 +246,7 @@ func (s *Service) NewWorkItem(ctx context.Context, opts NewOptions) (NewResult, 
 	if m.Agent == "" {
 		m.Agent = "default"
 	}
-	createEvent := model.NewEvent(now, "work_item.created", "user", map[string]any{"title": title, "slug": slug, "workspace_kind": checkout.Kind})
+	createEvent := model.NewEvent(now, "work_item.created", "user", map[string]any{"title": title, "slug": slug, "workspace_kind": checkout.Specification.Kind})
 	if opts.PrepareOnly {
 		return NewResult{Manifest: m, ItemDir: s.store.ItemDir(id), Warnings: warnings, Description: opts.Description, CreateEvent: createEvent}, nil
 	}

@@ -114,7 +114,7 @@ func (a *App) validateDeletableWorkItem(ctx context.Context, manifest model.Mani
 			return fmt.Errorf("terminal session %s still exists; close it before deleting work item %s", manifest.TerminalSessionName(), manifest.ID)
 		}
 	}
-	if manifest.Checkout.Present() || manifest.Checkout.Path != nil {
+	if manifest.Checkout.Present() || manifest.Checkout.Claim != nil {
 		return fmt.Errorf("work item %s still has a materialized checkout; release it before deleting", manifest.ID)
 	}
 	return nil

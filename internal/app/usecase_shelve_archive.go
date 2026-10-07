@@ -120,8 +120,8 @@ func (a *App) releaseWorkspaceBeforeDeferredTerminalClose(ctx context.Context, m
 	if err := a.ensureCheckoutReleasable(ctx, m); err != nil {
 		return m, warnings, false, "", err
 	}
-	if m.Checkout.Present() && m.Checkout.Path != nil && m.Checkout.Kind != model.WorkspaceKindRepositoryHome && !workspacecore.IsSlotPathName(*m.Checkout.Path) {
-		return m, warnings, false, "", fmt.Errorf("cannot defer terminal closure for non-slot worktree %s", *m.Checkout.Path)
+	if m.Checkout.Present() && m.Checkout.Claim != nil && m.Checkout.Specification.Kind != model.WorkspaceKindRepositoryHome && !workspacecore.IsSlotPathName(m.Checkout.Claim.Path) {
+		return m, warnings, false, "", fmt.Errorf("cannot defer terminal closure for non-slot worktree %s", m.Checkout.Claim.Path)
 	}
 	session := strings.TrimSpace(m.TerminalSessionName())
 	if a.Tmux != nil && session != "" {
@@ -133,7 +133,7 @@ func (a *App) releaseWorkspaceBeforeDeferredTerminalClose(ctx context.Context, m
 			session = ""
 		}
 	}
-	hadCheckoutClaim := m.Checkout.Present() && m.Checkout.Path != nil && *m.Checkout.Path != ""
+	hadCheckoutClaim := m.Checkout.Present() && m.Checkout.Claim != nil && m.Checkout.Claim.Path != ""
 	released, err := a.releaseCheckout(ctx, m, force)
 	if err != nil {
 		return m, warnings, false, "", err
@@ -242,7 +242,7 @@ func (a *App) closeWorkspace(ctx context.Context, m model.Manifest, force bool, 
 		return m, warnings, changed, nil
 	}
 
-	hadCheckout := m.Checkout.Present() && m.Checkout.Path != nil && *m.Checkout.Path != ""
+	hadCheckout := m.Checkout.Present() && m.Checkout.Claim != nil && m.Checkout.Claim.Path != ""
 	released, err := a.releaseCheckout(ctx, m, force)
 	if err != nil {
 		return m, warnings, changed, err

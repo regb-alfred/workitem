@@ -152,11 +152,13 @@ func printNewWorkItemResult(cfg Config, res app.NewWorkItemResult) {
 	fmt.Fprintf(cfg.Stdout, "item directory: %s\n", res.ItemDir)
 	fmt.Fprintf(cfg.Stdout, "repository: %s\n", res.Manifest.Repository.RootAtCreation)
 	fmt.Fprintf(cfg.Stdout, "created from commit: %s\n", res.Manifest.Repository.CreatedFromCommit)
-	fmt.Fprintf(cfg.Stdout, "branch: %s\n", res.Manifest.Checkout.Branch)
-	fmt.Fprintf(cfg.Stdout, "workspace kind: %s\n", res.Manifest.Checkout.Kind)
+	if res.Manifest.Checkout.Specification.Branch != "" {
+		fmt.Fprintf(cfg.Stdout, "branch: %s\n", res.Manifest.Checkout.Specification.Branch)
+	}
+	fmt.Fprintf(cfg.Stdout, "workspace kind: %s\n", res.Manifest.Checkout.Specification.Kind)
 	fmt.Fprintf(cfg.Stdout, "checkout: %s\n", res.Manifest.Checkout.Presence())
-	if res.Manifest.Checkout.Path != nil {
-		fmt.Fprintf(cfg.Stdout, "checkout path: %s\n", *res.Manifest.Checkout.Path)
+	if res.Manifest.Checkout.Claim != nil {
+		fmt.Fprintf(cfg.Stdout, "checkout path: %s\n", res.Manifest.Checkout.Claim.Path)
 	}
 	if res.Manifest.PrimaryConversation != nil {
 		fmt.Fprintf(cfg.Stdout, "primary conversation: %s %s\n", res.Manifest.PrimaryConversation.ID, res.Manifest.PrimaryConversation.NativeLocator())

@@ -314,8 +314,5 @@ func manifest(t *testing.T, id, title string, now time.Time) model.Manifest {
 		GitCommonDir:      filepath.Join(t.TempDir(), ".git"),
 		RemoteURL:         "",
 		CreatedFromCommit: strings.Repeat("a", 40),
-	}, model.Checkout{
-		Path:   nil,
-		Branch: model.ItemBranchName("item", id),
-	})
+	}, model.Checkout{Specification: model.CheckoutSpecification{Branch: model.ItemBranchName("item", id)}})
 }

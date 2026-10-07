@@ -46,14 +46,15 @@ func (f fakeTmux) KillSession(context.Context, string) error { return f.err }
 
 type fakeStore struct{}
 
-func (fakeStore) ItemDir(string) string                                  { return "/items/item-1" }
-func (fakeStore) LoadAgentRuntime(string) (*model.AgentRuntime, error)   { return nil, nil }
-func (fakeStore) RemoveTerminalRuntime(context.Context, string) error    { return nil }
-func (fakeStore) AppendEvent(context.Context, string, model.Event) error { return nil }
+func (fakeStore) ItemDir(string) string                                      { return "/items/item-1" }
+func (fakeStore) LoadAgentRuntime(string) (*model.AgentRuntime, error)       { return nil, nil }
+func (fakeStore) LoadTerminalRuntime(string) (*model.TerminalRuntime, error) { return nil, nil }
+func (fakeStore) RemoveTerminalRuntime(context.Context, string) error        { return nil }
+func (fakeStore) AppendEvent(context.Context, string, model.Event) error     { return nil }
 
 func TestEnsureForManifestAppliesEnvironmentBeforeSessionCreation(t *testing.T) {
 	path := "/checkout"
-	manifest := model.Manifest{ID: "item-1", Repository: model.Repository{RootAtCreation: "/repo"}, Checkout: model.Checkout{Path: &path}}
+	manifest := model.Manifest{ID: "item-1", Repository: model.Repository{RootAtCreation: "/repo"}, Checkout: model.Checkout{Specification: model.CheckoutSpecification{}, ClaimGeneration: 1, Claim: &model.WorkspaceClaim{ID: "test-claim", Generation: 1, Executor: model.ExecutorLocal, Path: path}}}
 	workspace := func(context.Context, contract.ResolveOptions, model.Manifest, bool) (model.Manifest, []string, error) {
 		return manifest, nil, nil
 	}
@@ -93,6 +94,31 @@ func TestEnterAlwaysSwitchesCapturedOriginatingClientAfterSessionCreation(t *tes
 	res, err := New(fakeStore{}, mux, resolve, workspace, nil, nil).Enter(context.Background(), contract.ResolveOptions{Env: map[string]string{"TMUX": "yes", "WI_TMUX_CLIENT": "client-7"}}, true)
 	if err != nil || !res.Attached || attached != 1 || client != "client-7" {
 		t.Fatalf("result=%+v attached=%d client=%q err=%v", res, attached, client, err)
+	}
+}
+
+type boundTerminalStore struct{ fakeStore }
+
+func (boundTerminalStore) LoadTerminalRuntime(string) (*model.TerminalRuntime, error) {
+	return &model.TerminalRuntime{WorkspaceClaimID: "claim-1", WorkspaceClaimGeneration: 1}, nil
+}
+
+func TestTerminalCannotEnterSupersededClaim(t *testing.T) {
+	manifest := model.Manifest{ID: "item-1", State: model.StateWorking, Checkout: model.Checkout{ClaimGeneration: 2, Claim: &model.WorkspaceClaim{ID: "claim-2", Generation: 2, Path: "/workspace"}}}
+	resolve := func(context.Context, contract.ResolveOptions) (model.Manifest, error) { return manifest, nil }
+	workspace := func(context.Context, contract.ResolveOptions, model.Manifest, bool) (model.Manifest, []string, error) {
+		return manifest, nil, nil
+	}
+	attached := 0
+	service := New(boundTerminalStore{}, fakeTmux{exists: true, attachSink: &attached}, resolve, workspace, nil, nil)
+	if _, err := service.EnterExisting(context.Background(), contract.ResolveOptions{}, true); err == nil {
+		t.Fatal("entered stale terminal")
+	}
+	if _, err := service.Ensure(context.Background(), contract.ResolveOptions{}); err == nil {
+		t.Fatal("reused stale terminal")
+	}
+	if attached != 0 {
+		t.Fatal("attached before validating claim")
 	}
 }
 

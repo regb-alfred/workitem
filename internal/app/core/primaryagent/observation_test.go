@@ -37,7 +37,7 @@ func TestWorktreeBranchPolicy(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			path := t.TempDir()
-			m := model.Manifest{Repository: model.Repository{CreatedFromCommit: "base"}, Checkout: model.Checkout{Kind: tc.kind, Branch: "master", Path: &path}}
+			m := model.Manifest{Repository: model.Repository{CreatedFromCommit: "base"}, Checkout: model.Checkout{Specification: model.CheckoutSpecification{Kind: tc.kind, Branch: "master"}, ClaimGeneration: 1, Claim: &model.WorkspaceClaim{ID: "test-claim", Generation: 1, Executor: model.ExecutorLocal, Path: path}}}
 			s := New(nil, nil, branchObservationGit{tc.branch, tc.head, tc.dirty, tc.err}, nil, nil, nil, nil, nil)
 			got, warnings := s.inspectWorktree(context.Background(), m)
 			if got.Status != tc.status || got.BranchMismatch != tc.mismatch || got.CurrentBranch != tc.branch {

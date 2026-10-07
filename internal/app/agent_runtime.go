@@ -161,7 +161,13 @@ func (a *App) EnsureAgentRuntime(ctx context.Context, opts ResolveOptions, mode 
 }
 
 func (a *App) validateRuntimeCheckout(ctx context.Context, m model.Manifest, runtime model.AgentRuntime) ([]string, error) {
-	if runtime.Mode != string(agent.ModeTUI) || a.Tmux == nil || m.Checkout.Path == nil || strings.TrimSpace(*m.Checkout.Path) == "" {
+	if runtime.WorkspaceClaimID != "" {
+		claim := m.Checkout.Claim
+		if claim == nil || claim.ID != runtime.WorkspaceClaimID || claim.Generation != runtime.WorkspaceClaimGeneration {
+			return nil, fmt.Errorf("agent runtime %s belongs to a superseded workspace claim", runtime.ID)
+		}
+	}
+	if runtime.Mode != string(agent.ModeTUI) || a.Tmux == nil || m.Checkout.Claim == nil || strings.TrimSpace(m.Checkout.Claim.Path) == "" {
 		return nil, nil
 	}
 	window := "agent"
@@ -189,7 +195,7 @@ func (a *App) validateRuntimeCheckout(ctx context.Context, m model.Manifest, run
 	if panePath == "" {
 		return []string{"could not verify active agent pane checkout: tmux reported an empty pane path"}, nil
 	}
-	checkoutPath := strings.TrimSpace(*m.Checkout.Path)
+	checkoutPath := strings.TrimSpace(m.Checkout.Claim.Path)
 	if !agentcore.CheckoutContainsPath(checkoutPath, panePath) {
 		return nil, fmt.Errorf("agent runtime %s is running in %s, but work item %s now owns checkout %s; stop the runtime and start or switch the item again", runtime.ID, panePath, m.ID, checkoutPath)
 	}

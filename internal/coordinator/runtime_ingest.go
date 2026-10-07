@@ -62,7 +62,8 @@ func IngestRuntimeEvent(ctx context.Context, database *Database, event RuntimeSe
 	if !allowedLiveRuntimeEvent(event.Type) {
 		return RuntimeIngestResult{}, fmt.Errorf("runtime event type %q is not retained", event.Type)
 	}
-	if _, err := database.CanonicalManifest(event.WorkItemID); err != nil {
+	canonical, err := database.CanonicalManifest(event.WorkItemID)
+	if err != nil {
 		return RuntimeIngestResult{}, err
 	}
 	var owner model.AgentRuntime
@@ -72,6 +73,13 @@ func IngestRuntimeEvent(ctx context.Context, database *Database, event RuntimeSe
 	}
 	if !ownerFound || owner.ID != event.RuntimeID {
 		return RuntimeIngestResult{}, &RuntimeOwnerMismatchError{WorkItemID: event.WorkItemID, EventRuntimeID: event.RuntimeID, CurrentRuntimeID: owner.ID}
+	}
+
+	if owner.WorkspaceClaimID != "" {
+		claim := canonical.Manifest.Checkout.Claim
+		if claim == nil || claim.ID != owner.WorkspaceClaimID || claim.Generation != owner.WorkspaceClaimGeneration {
+			return RuntimeIngestResult{}, fmt.Errorf("runtime %s belongs to a superseded workspace claim", owner.ID)
+		}
 	}
 
 	activity, _, err := loadRuntimeActivity(database, event.WorkItemID)

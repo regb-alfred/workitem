@@ -333,7 +333,7 @@ func TestNewHomeCLIRecordsBorrowedCheckout(t *testing.T) {
 	if err := json.Unmarshal(stdout.Bytes(), &got); err != nil {
 		t.Fatal(err)
 	}
-	if got.Manifest == nil || got.Manifest.Checkout.Kind != model.WorkspaceKindRepositoryHome || got.Manifest.Checkout.Path == nil || *got.Manifest.Checkout.Path != root {
+	if got.Manifest == nil || got.Manifest.Checkout.Specification.Kind != model.WorkspaceKindRepositoryHome || got.Manifest.Checkout.Claim == nil || got.Manifest.Checkout.Claim.Path != root {
 		t.Fatalf("result=%+v", got)
 	}
 }
@@ -452,7 +452,7 @@ func TestWorkspaceStatusTextExplainsBranchMismatch(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	path := *started.Workspace.Manifest.Checkout.Path
+	path := started.Workspace.Manifest.Checkout.Claim.Path
 	git := application.Git.(*fakeGit)
 	git.worktrees[path] = "temporary-fix"
 	code := cli.Run(context.Background(), []string{"workspace", "status", "--item", created.Manifest.ID}, cli.Config{Stdout: stdout, Stderr: stderr, CWD: t.TempDir(), Env: map[string]string{}, App: application})
@@ -460,7 +460,7 @@ func TestWorkspaceStatusTextExplainsBranchMismatch(t *testing.T) {
 		t.Fatalf("workspace status code=%d stderr=%s", code, stderr.String())
 	}
 	output := stdout.String()
-	for _, expected := range []string{"worktree: problem", "reason: checkout branch temporary-fix differs from expected " + started.Workspace.Manifest.Checkout.Branch, "expected branch: " + started.Workspace.Manifest.Checkout.Branch, "current branch: temporary-fix", "created from commit:", "current HEAD:", "dirty: false"} {
+	for _, expected := range []string{"worktree: problem", "reason: checkout branch temporary-fix differs from expected " + started.Workspace.Manifest.Checkout.Specification.Branch, "expected branch: " + started.Workspace.Manifest.Checkout.Specification.Branch, "current branch: temporary-fix", "created from commit:", "current HEAD:", "dirty: false"} {
 		if !strings.Contains(output, expected) {
 			t.Fatalf("workspace status missing %q:\n%s", expected, output)
 		}
@@ -571,7 +571,7 @@ func TestStartNewSupportsRepositoryHome(t *testing.T) {
 	if err := json.Unmarshal(stdout.Bytes(), &result); err != nil {
 		t.Fatal(err)
 	}
-	if result.New.Manifest.Checkout.Kind != model.WorkspaceKindRepositoryHome || result.Start.Transition.State != model.StateWorking {
+	if result.New.Manifest.Checkout.Specification.Kind != model.WorkspaceKindRepositoryHome || result.Start.Transition.State != model.StateWorking {
 		t.Fatalf("result = %+v", result)
 	}
 }
@@ -975,7 +975,7 @@ func TestMergeJSON(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	source := *started.Workspace.Checkout.Path
+	source := started.Workspace.Checkout.Claim.Path
 	if err := os.WriteFile(filepath.Join(source, "feature.txt"), []byte("feature\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}

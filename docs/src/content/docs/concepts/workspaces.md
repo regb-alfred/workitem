@@ -5,6 +5,8 @@ description: Learn how wi assigns and reuses Git checkouts.
 
 In `wi`, a workspace is a Git checkout claim. It is not a tmux session and it is not an agent process.
 
+A checkout specification records how to materialize work. A nullable claim records the current assignment, including its path and identity. Releasing a workspace removes the claim but preserves the specification and the last claim generation. Each later assignment gets a new identity and a higher generation, even when it reuses the same directory. Runtime and terminal records bind to that assignment so stale owners cannot resume work against a replacement claim.
+
 ## Managed slots
 
 Most items use a managed slot. Creation records the repository, implementation branch, and created-from commit, but leaves the checkout absent:
@@ -43,7 +45,7 @@ Some work must happen in the repository's primary checkout on its local default 
 wi new --home "Update release metadata"
 ```
 
-A repository-home item borrows that checkout. Creation requires the local default branch and no other active home claim. After creation, the checkout's branch is user-owned: renames, temporary branch switches, and detached HEAD are normal observations. Wi does not enforce the branch recorded at creation or switch, reset, clean, or remove the directory.
+A repository-home item borrows that checkout. Creation requires the local default branch and no other active home claim. After creation, the checkout's branch is user-owned: renames, temporary branch switches, and detached HEAD are normal observations. Its checkout specification has no implementation-branch constraint. Wi does not switch, reset, clean, or remove the directory.
 
 Status reports the current branch, HEAD, and dirty files without an expected-branch constraint. The created-from commit remains provenance. Release retains its existing clean-worktree requirement, and integration uses ordinary Git commands rather than `wi merge`.
 

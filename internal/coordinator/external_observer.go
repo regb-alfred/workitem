@@ -183,11 +183,25 @@ func (o *ExternalObserver) applyActionability(itemID string, observation *AgentO
 	if err != nil {
 		return fmt.Errorf("read runtime activity projection: %w", err)
 	}
-	if liveFound {
+	claimCurrent := true
+	if ownerFound && owner.WorkspaceClaimID != "" {
+		canonical, err := o.database.CanonicalManifest(itemID)
+		if err != nil {
+			return err
+		}
+		claim := canonical.Manifest.Checkout.Claim
+		claimCurrent = claim != nil && claim.ID == owner.WorkspaceClaimID && claim.Generation == owner.WorkspaceClaimGeneration
+		if observation.ProcessOnline && !claimCurrent {
+			observation.Status = "problem"
+			observation.Reason = "active agent runtime belongs to a superseded workspace claim"
+			return nil
+		}
+	}
+	if liveFound && claimCurrent {
 		observation.Activity.LastRequestedAt = laterTime(observation.Activity.LastRequestedAt, live.LastRequestedAt)
 		observation.Activity.LastCompletedAt = laterTime(observation.Activity.LastCompletedAt, live.LastCompletedAt)
 	}
-	liveOwnerCurrent := liveFound && ownerFound && live.RuntimeID == owner.ID
+	liveOwnerCurrent := liveFound && ownerFound && claimCurrent && live.RuntimeID == owner.ID
 	liveCurrent := liveOwnerCurrent && live.Source == "daemon.runtime.live" && live.LastEventAt != nil && (!conversationFound || conversation.LastTurnActivity == nil || !live.LastEventAt.Before(conversation.LastTurnActivity.Timestamp))
 	switch {
 	case liveCurrent && live.RuntimeState == model.AgentRuntimeProblem:
@@ -310,15 +324,15 @@ func (o *ExternalObserver) observe(ctx context.Context, manifest model.Manifest,
 }
 
 func (o *ExternalObserver) observeWorktree(ctx context.Context, manifest model.Manifest) *ProjectedWorktree {
-	expected := strings.TrimSpace(manifest.Checkout.Branch)
-	if manifest.Checkout.Kind == model.WorkspaceKindRepositoryHome {
+	expected := strings.TrimSpace(manifest.Checkout.Specification.Branch)
+	if manifest.Checkout.Specification.Kind == model.WorkspaceKindRepositoryHome {
 		expected = ""
 	}
 	result := &ProjectedWorktree{Status: "absent", Reason: "checkout is absent", ExpectedBranch: expected}
-	if !manifest.Checkout.Present() || manifest.Checkout.Path == nil || strings.TrimSpace(*manifest.Checkout.Path) == "" {
+	if !manifest.Checkout.Present() || manifest.Checkout.Claim == nil || strings.TrimSpace(manifest.Checkout.Claim.Path) == "" {
 		return result
 	}
-	result.CheckoutPath = *manifest.Checkout.Path
+	result.CheckoutPath = manifest.Checkout.Claim.Path
 	if _, err := os.Stat(result.CheckoutPath); err != nil {
 		result.Status = "problem"
 		result.Reason = "checkout path is unavailable: " + err.Error()

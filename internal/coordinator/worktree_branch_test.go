@@ -30,7 +30,7 @@ func TestProjectedWorktreeBranchPolicy(t *testing.T) {
 			} else {
 				git("checkout", "main")
 			}
-			m := model.Manifest{Repository: model.Repository{CreatedFromCommit: base}, Checkout: model.Checkout{Kind: kind, Branch: "master", Path: &path}}
+			m := model.Manifest{Repository: model.Repository{CreatedFromCommit: base}, Checkout: model.Checkout{Specification: model.CheckoutSpecification{Kind: kind, Branch: "master"}, ClaimGeneration: 1, Claim: &model.WorkspaceClaim{ID: "test-claim", Generation: 1, Executor: model.ExecutorLocal, Path: path}}}
 			got := observer.observeWorktree(context.Background(), m)
 			if kind == model.WorkspaceKindRepositoryHome {
 				if got.Status != "clean" || got.ExpectedBranch != "" || got.BranchMismatch {

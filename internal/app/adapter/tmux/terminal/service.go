@@ -16,6 +16,7 @@ import (
 type Store interface {
 	ItemDir(string) string
 	LoadAgentRuntime(string) (*model.AgentRuntime, error)
+	LoadTerminalRuntime(string) (*model.TerminalRuntime, error)
 	RemoveTerminalRuntime(context.Context, string) error
 	AppendEvent(context.Context, string, model.Event) error
 }
@@ -121,6 +122,9 @@ func (s *Service) EnterExisting(ctx context.Context, opts contract.ResolveOption
 	res := Result{WorkItemID: m.ID, Session: m.TerminalSessionName(), Checkout: m.Checkout, Warnings: []string{}}
 	if s.tmux == nil {
 		return Result{}, fmt.Errorf("tmux terminal adapter is not configured")
+	}
+	if err := s.validateClaim(ctx, m); err != nil {
+		return Result{}, err
 	}
 	exists, err := s.tmux.HasSession(ctx, res.Session)
 	if err != nil {
@@ -229,6 +233,9 @@ func (s *Service) EnsureForManifestWithEnvironmentAndScrub(ctx context.Context, 
 	if s.tmux == nil {
 		return res, fmt.Errorf("tmux terminal adapter is not configured")
 	}
+	if err := s.validateClaim(ctx, m); err != nil {
+		return Result{}, err
+	}
 	created, err := s.tmux.EnsureSession(ctx, s.SpecWithEnvironmentAndScrub(m, environment, scrub))
 	if err != nil {
 		return Result{}, err
@@ -238,6 +245,25 @@ func (s *Service) EnsureForManifestWithEnvironmentAndScrub(ctx context.Context, 
 		_ = s.store.AppendEvent(ctx, m.ID, model.NewEvent(s.now(), "terminal.created", "wi", map[string]any{"session": res.Session}))
 	}
 	return res, nil
+}
+
+func (s *Service) validateClaim(ctx context.Context, m model.Manifest) error {
+	// A missing terminal is normal; stale handle metadata must not block creation.
+	exists, err := s.tmux.HasSession(ctx, m.TerminalSessionName())
+	if err != nil || !exists {
+		return err
+	}
+	terminal, err := s.store.LoadTerminalRuntime(m.ID)
+	if err != nil {
+		return err
+	}
+	if terminal != nil && terminal.WorkspaceClaimID != "" {
+		claim := m.Checkout.Claim
+		if claim == nil || claim.ID != terminal.WorkspaceClaimID || claim.Generation != terminal.WorkspaceClaimGeneration {
+			return fmt.Errorf("terminal belongs to a superseded workspace claim; stop its agent runtime and close the terminal before reopening it")
+		}
+	}
+	return nil
 }
 
 func (s *Service) resolveTerminalItem(ctx context.Context, opts contract.ResolveOptions) (model.Manifest, error) {
@@ -288,8 +314,8 @@ func (s *Service) spec(m model.Manifest, environment map[string]string) tmuxpkg.
 		env["WI_REPOSITORY"] = repositoryRoot
 	}
 	cwd := repositoryRoot
-	if m.Checkout.Path != nil && *m.Checkout.Path != "" {
-		env["WI_WORKTREE"], cwd = *m.Checkout.Path, *m.Checkout.Path
+	if m.Checkout.Claim != nil && m.Checkout.Claim.Path != "" {
+		env["WI_WORKTREE"], cwd = m.Checkout.Claim.Path, m.Checkout.Claim.Path
 	}
 	return tmuxpkg.SessionSpec{Name: m.TerminalSessionName(), CWD: cwd, Env: env}
 }

@@ -692,7 +692,7 @@ func agentMethodAllowed(method string) bool {
 
 func agentVisibleManifest(manifest model.Manifest) model.Manifest {
 	manifest.Repository = model.Repository{}
-	manifest.Checkout = model.Checkout{Kind: manifest.Checkout.Kind}
+	manifest.Checkout = model.Checkout{Specification: model.CheckoutSpecification{Kind: manifest.Checkout.Specification.Kind}}
 	manifest.PrimaryConversation = nil
 	return manifest
 }
@@ -701,13 +701,13 @@ func validateAgentCreateItem(manifest model.Manifest) error {
 	if manifest.State != model.StateBacklog {
 		return errors.New("agent endpoint may create backlog items only")
 	}
-	if manifest.Checkout.Kind != model.WorkspaceKindManagedSlot || manifest.Checkout.Present() {
+	if manifest.Checkout.Specification.Kind != model.WorkspaceKindManagedSlot || manifest.Checkout.Present() {
 		return errors.New("agent endpoint may create absent managed-slot checkouts only")
 	}
-	if manifest.Checkout.Path != nil {
+	if manifest.Checkout.Claim != nil {
 		return errors.New("agent endpoint may not claim a workspace path")
 	}
-	if manifest.Checkout.Branch != model.ItemBranchName(manifest.Slug, manifest.ID) {
+	if manifest.Checkout.Specification.Branch != model.ItemBranchName(manifest.Slug, manifest.ID) {
 		return errors.New("agent endpoint requires the canonical item branch")
 	}
 	if manifest.PrimaryConversation != nil {

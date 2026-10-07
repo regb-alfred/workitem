@@ -65,16 +65,16 @@ func (a *App) MergeWorkItem(ctx context.Context, opts MergeOptions) (MergeResult
 		return MergeResult{}, err
 	}
 	res := MergeResult{WorkItemID: m.ID, SourceBranch: expectedCheckoutBranch(m), Warnings: []string{}}
-	if m.Checkout.Kind == model.WorkspaceKindRepositoryHome {
+	if m.Checkout.Specification.Kind == model.WorkspaceKindRepositoryHome {
 		return res, fmt.Errorf("repository-home checkout is user-owned; integrate, commit, and push with normal Git commands instead of `wi merge`")
 	}
 	if m.State != model.StateWorking && m.State != model.StateWaiting {
 		return res, fmt.Errorf("work item %s is %s; merge requires a working or waiting item", m.ID, m.State)
 	}
-	if !m.Checkout.Present() || m.Checkout.Path == nil || strings.TrimSpace(*m.Checkout.Path) == "" {
+	if !m.Checkout.Present() || m.Checkout.Claim == nil || strings.TrimSpace(m.Checkout.Claim.Path) == "" {
 		return res, fmt.Errorf("work item %s has no checkout; start it before merging", m.ID)
 	}
-	res.SourcePath = *m.Checkout.Path
+	res.SourcePath = m.Checkout.Claim.Path
 	mg, ok := a.Git.(mergeGit)
 	if !ok {
 		return res, fmt.Errorf("configured Git adapter does not support merge operations")
