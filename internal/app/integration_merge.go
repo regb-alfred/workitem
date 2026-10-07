@@ -66,7 +66,7 @@ func (a *App) MergeWorkItem(ctx context.Context, opts MergeOptions) (MergeResult
 	}
 	res := MergeResult{WorkItemID: m.ID, SourceBranch: expectedCheckoutBranch(m), Warnings: []string{}}
 	if m.Checkout.Kind == model.WorkspaceKindRepositoryHome {
-		return res, fmt.Errorf("repository-home work item is already on the local default branch; commit and push with normal Git commands instead of `wi merge`")
+		return res, fmt.Errorf("repository-home checkout is user-owned; integrate, commit, and push with normal Git commands instead of `wi merge`")
 	}
 	if m.State != model.StateWorking && m.State != model.StateWaiting {
 		return res, fmt.Errorf("work item %s is %s; merge requires a working or waiting item", m.ID, m.State)

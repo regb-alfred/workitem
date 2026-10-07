@@ -65,7 +65,7 @@ func (s *Service) CheckoutCreate(ctx context.Context, opts contract.ResolveOptio
 	if m.Checkout.Present() && m.Checkout.Path != nil && *m.Checkout.Path != "" {
 		if _, err := os.Stat(*m.Checkout.Path); err == nil {
 			if err := s.ensureCheckoutBranch(ctx, m); err != nil {
-				return CheckoutCreateResult{}, err
+				warnings = append(warnings, err.Error())
 			}
 			return CheckoutCreateResult{WorkItemID: m.ID, Checkout: m.Checkout, Source: "already present", Manifest: m, Warnings: warnings}, nil
 		} else if !os.IsNotExist(err) {
@@ -161,8 +161,8 @@ func (s *Service) CheckoutStatus(ctx context.Context, opts contract.ResolveOptio
 		return res, nil
 	}
 	if branch, err := s.git.CurrentBranch(ctx, *m.Checkout.Path); err == nil {
-		res.CurrentBranch, res.BranchMatches = branch, branch == res.ExpectedBranch
-		res.BranchMismatch = res.ExpectedBranch != "" && branch != "" && branch != res.ExpectedBranch
+		res.CurrentBranch, res.BranchMatches = branch, res.ExpectedBranch != "" && branch == res.ExpectedBranch
+		res.BranchMismatch = res.ExpectedBranch != "" && branch != res.ExpectedBranch
 		if res.BranchMismatch {
 			res.Warnings = append(res.Warnings, fmt.Sprintf("checkout branch mismatch: expected %s, found %s", res.ExpectedBranch, branch))
 		}
@@ -219,7 +219,7 @@ func (s *Service) EnsureCheckout(ctx context.Context, opts contract.ResolveOptio
 		m, warnings = created.Manifest, append(warnings, created.Warnings...)
 	}
 	if err := s.ensureCheckoutBranch(ctx, m); err != nil {
-		return model.Manifest{}, warnings, err
+		warnings = append(warnings, err.Error())
 	}
 	return m, warnings, nil
 }

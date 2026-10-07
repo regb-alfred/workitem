@@ -309,19 +309,24 @@ func (s *Service) inspectWorktree(ctx context.Context, m model.Manifest) (*Workt
 		}
 	}
 	wt.CurrentBranch = branch
-	wt.BranchMatches = branch == wt.ExpectedBranch
-	wt.BranchMismatch = wt.ExpectedBranch != "" && branch != "" && branch != wt.ExpectedBranch
+	wt.BranchMatches = wt.ExpectedBranch != "" && branch == wt.ExpectedBranch
+	wt.BranchMismatch = wt.ExpectedBranch != "" && branch != wt.ExpectedBranch
 	if wt.BranchMismatch {
 		wt.Reason = fmt.Sprintf("checkout branch %s differs from expected %s", branch, wt.ExpectedBranch)
 		warnings = append(warnings, fmt.Sprintf("checkout branch mismatch: expected %s, found %s", wt.ExpectedBranch, branch))
 	}
 	wt.Head = head
 	wt.Dirty = strings.TrimSpace(porcelain) != ""
-	if wt.BranchMismatch || wt.CurrentBranch == "" || inspectionProblem {
+	if inspectionProblem {
 		if wt.Reason == "" {
 			wt.Reason = fmt.Sprintf("checkout branch %s differs from expected %s", wt.CurrentBranch, wt.ExpectedBranch)
 		}
 		wt.Status = "problem"
+		return wt, warnings
+	}
+	if wt.BranchMismatch {
+		wt.Status = "changed"
+		wt.HasChanges = true
 		return wt, warnings
 	}
 	if wt.Dirty {
@@ -337,11 +342,17 @@ func (s *Service) inspectWorktree(ctx context.Context, m model.Manifest) (*Workt
 		return wt, warnings
 	}
 	wt.Status = "clean"
-	wt.Reason = "checkout matches the expected branch and created-from commit"
+	wt.Reason = "checkout matches the created-from commit"
+	if wt.ExpectedBranch != "" {
+		wt.Reason = "checkout matches the expected branch and created-from commit"
+	}
 	return wt, warnings
 }
 
 func expectedBranch(m model.Manifest) string {
+	if m.Checkout.Kind == model.WorkspaceKindRepositoryHome {
+		return ""
+	}
 	return strings.TrimSpace(m.Checkout.Branch)
 }
 

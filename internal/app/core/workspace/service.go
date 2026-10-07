@@ -84,6 +84,9 @@ type RelocateRepositoryResult struct {
 }
 
 func ExpectedBranch(m model.Manifest) string {
+	if m.Checkout.Kind == model.WorkspaceKindRepositoryHome {
+		return ""
+	}
 	return strings.TrimSpace(m.Checkout.Branch)
 }
 
@@ -140,8 +143,8 @@ func (s *Service) Status(ctx context.Context, opts contract.ResolveOptions) (Sta
 	}
 	if b, e := s.git.CurrentBranch(ctx, *m.Checkout.Path); e == nil {
 		res.Git.CurrentBranch = b
-		res.Git.BranchMatches = b == res.Git.ExpectedBranch
-		res.Git.BranchMismatch = b != "" && b != res.Git.ExpectedBranch
+		res.Git.BranchMatches = res.Git.ExpectedBranch != "" && b == res.Git.ExpectedBranch
+		res.Git.BranchMismatch = res.Git.ExpectedBranch != "" && b != res.Git.ExpectedBranch
 	} else {
 		res.Warnings = append(res.Warnings, "could not inspect checkout branch: "+e.Error())
 	}

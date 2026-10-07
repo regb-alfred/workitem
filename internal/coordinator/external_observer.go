@@ -311,6 +311,9 @@ func (o *ExternalObserver) observe(ctx context.Context, manifest model.Manifest,
 
 func (o *ExternalObserver) observeWorktree(ctx context.Context, manifest model.Manifest) *ProjectedWorktree {
 	expected := strings.TrimSpace(manifest.Checkout.Branch)
+	if manifest.Checkout.Kind == model.WorkspaceKindRepositoryHome {
+		expected = ""
+	}
 	result := &ProjectedWorktree{Status: "absent", Reason: "checkout is absent", ExpectedBranch: expected}
 	if !manifest.Checkout.Present() || manifest.Checkout.Path == nil || strings.TrimSpace(*manifest.Checkout.Path) == "" {
 		return result
@@ -329,13 +332,13 @@ func (o *ExternalObserver) observeWorktree(ctx context.Context, manifest model.M
 	}
 	result.Head = head
 	result.CurrentBranch = branch
-	result.BranchMatches = branch == expected
-	result.BranchMismatch = expected != "" && branch != "" && branch != expected
+	result.BranchMatches = expected != "" && branch == expected
+	result.BranchMismatch = expected != "" && branch != expected
 	result.Dirty = strings.TrimSpace(status) != ""
-	result.HasChanges = result.Dirty || head != "" && manifest.Repository.CreatedFromCommit != "" && head != manifest.Repository.CreatedFromCommit
+	result.HasChanges = result.BranchMismatch || result.Dirty || head != "" && manifest.Repository.CreatedFromCommit != "" && head != manifest.Repository.CreatedFromCommit
 	switch {
 	case result.BranchMismatch:
-		result.Status = "problem"
+		result.Status = "changed"
 		result.Reason = fmt.Sprintf("checkout branch %s differs from expected %s", branch, expected)
 	case result.Dirty:
 		result.Status = "changed"
@@ -345,7 +348,10 @@ func (o *ExternalObserver) observeWorktree(ctx context.Context, manifest model.M
 		result.Reason = "checkout HEAD differs from the item's created-from commit"
 	default:
 		result.Status = "clean"
-		result.Reason = "checkout matches the expected branch and created-from commit"
+		result.Reason = "checkout matches the created-from commit"
+		if expected != "" {
+			result.Reason = "checkout matches the expected branch and created-from commit"
+		}
 	}
 	return result
 }

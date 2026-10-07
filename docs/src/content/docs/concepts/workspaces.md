@@ -21,7 +21,9 @@ wi workspace ensure add-pagination
 wi workspace release add-pagination
 ```
 
-Release refuses while an active runtime or terminal depends on the checkout.
+Release refuses while an active runtime or terminal depends on the checkout. It also requires the item's implementation branch and a clean worktree.
+
+Checking out another branch or detaching HEAD in an assigned slot is reported as `changed`, with branch-divergence details. Inspection, navigation, and agent access remain available. Release and merge still require the recorded implementation branch. Wi does not automatically switch branches to repair divergence.
 
 ## Relocated repositories
 
@@ -41,7 +43,9 @@ Some work must happen in the repository's primary checkout on its local default 
 wi new --home "Update release metadata"
 ```
 
-A repository-home item borrows that checkout. `wi` validates that it exists, is on the local default branch, and has no other active home claim. It does not switch, reset, clean, or remove the directory.
+A repository-home item borrows that checkout. Creation requires the local default branch and no other active home claim. After creation, the checkout's branch is user-owned: renames, temporary branch switches, and detached HEAD are normal observations. Wi does not enforce the branch recorded at creation or switch, reset, clean, or remove the directory.
+
+Status reports the current branch, HEAD, and dirty files without an expected-branch constraint. The created-from commit remains provenance. Release retains its existing clean-worktree requirement, and integration uses ordinary Git commands rather than `wi merge`.
 
 Only one active item can claim a repository home at a time.
 

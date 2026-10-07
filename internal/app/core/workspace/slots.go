@@ -190,7 +190,7 @@ func repositoryKey(repo model.Repository) string {
 }
 
 func expectedCheckoutBranch(m model.Manifest) string {
-	return strings.TrimSpace(m.Checkout.Branch)
+	return ExpectedBranch(m)
 }
 
 func (s *Service) ensureCheckoutBranch(ctx context.Context, m model.Manifest) error {
@@ -199,6 +199,9 @@ func (s *Service) ensureCheckoutBranch(ctx context.Context, m model.Manifest) er
 	}
 	path := *m.Checkout.Path
 	expected := expectedCheckoutBranch(m)
+	if expected == "" {
+		return nil
+	}
 	current, err := s.git.CurrentBranch(ctx, path)
 	if err != nil {
 		return fmt.Errorf("could not inspect checkout branch: %w", err)
