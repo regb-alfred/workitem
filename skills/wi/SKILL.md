@@ -1,154 +1,109 @@
 ---
 name: wi
-description: Use wi from an active agent session to read task context, file durable follow-up work, review items, or make explicitly requested updates.
+description: Use when the user wants to manage work items or use the wi cli.
 ---
 
-# wi Agent Recipes
+`wi` is a cli to manage work items for git-based projects.
 
-Use this skill for operations that make sense from an already running agent. It is not a general interactive workflow guide.
+- Each work item is isolated in its own git worktree and is assigned to its own agent session.
+- `wi` is primarly a cli designed for human operators and many commands are meant for human use.
+- Avoid using any create/edit commands until explicitly asked to by the user.
+- Do not perform navigation, workspace, terminal, or workflow cleanup operations directly as they can impact the currently visible item for the user.
+- Most `wi` commands automatically select the current work item based on where the cli is ran and normal operations should not need to select a different work item.
 
-## Rules
+## Manage repos
 
-- Use `wi` commands; never edit wi manifests, descriptions, events, runtime files, locks, or Pi sessions directly.
-- IDs are durable identity; slugs are temporary aliases.
-- Do not contact another agent or change item metadata unless requested.
-- Do not perform navigation, workspace, terminal, or workflow cleanup operations through this skill.
-- Prefer `--item <selector>` when acting on an item other than the current one.
+Git repositories are the top-level organizations for work items, a work item is always spawned within the context of a repo.
+Wi keeps a global store of all repos that it manages, and a repo must be added explicitly before being able to create a work item in it.
 
-## Read task context
+```bash
+wi repo list
+wi repo add NAME --from GIT_CHECKOUT_PATH --branch DEFAULT_INTEGRATION_BRANCH
+```
+
+Use a local checkout of the repo you want to start managing, set the integration branch that `wi` will use to merge back the changes on each work item, if you omit it, it will try to discover it automatically and usually resolve main or master.
+
+Usually you don't need to specify a repo as you will file items related to the current item which is already associated with the right repo.
+
+## Work item context
+
+An agent session is always running in the context of a work item.
+You can inspect `WI_*` env variables if you need to understand in which work item context you are currently running.
+
+To inspect the item description and the task:
 
 ```bash
 wi show --json
-wi show --json --item <selector>
 ```
 
-`show` returns the manifest and the hydrated `DESCRIPTION.md` content in `.description`. Use the title and description as the task specification. If no current item resolves, continue from repository/conversation context when possible.
+## Filing work items
 
-## File follow-up work
-
-Use this when planning or implementation reveals independently actionable work. The future session may not have this conversation, so the title and description must be a self-contained handoff.
-
-### Recipe
-
-Include all context needed by a future agent. When running in Agentbox, use the sandbox-installed `wi` command and its restricted daemon endpoint.
-
-1. Read the source item with `wi show --json`.
-2. Choose a title that names the subsystem and concrete outcome.
-3. Write only the context needed by the future agent: why, evidence, constraints, next step, and definition of done.
-4. Create the backlog item with `wi new`.
-5. Report the returned ID, slug, and title.
+Create a new work item with its description in a markdown file:
 
 ```bash
-handoff=$(mktemp)
-cat >"$handoff" <<'EOF'
-# Context
-Source item: <ID and title, if any>
-<Why this work was discovered and why it is separate.>
-
-# Relevant details
-- <Observed behavior, exact error, or reproduction command>
-- <Relevant files, functions, commits, links, or current implementation state>
-- <Decisions, constraints, dependencies, and important non-goals>
-
-# Suggested next step
-<Useful starting point for a new agent.>
-
-# Done when
-- <Observable outcome>
-- <Required tests or validation>
-EOF
-
-wi new --json --label follow-up --desc-file "$handoff" \
-  "<clear outcome-oriented title>"
-rm -f "$handoff"
+wi new --title "Item title" --desc-file DESC_FILE
 ```
 
-Adapt the headings and omit empty sections. Capture facts and decisions, not a transcript dump. Never write “see current conversation” as the handoff.
+It default to the repo of the current work item, use `--repo REPO_NAME` if you want to file the item in another repo.
+The command will file the work item but not start it.
 
-Good title: `Harden runtime shutdown against stale PID reuse`
+The title should be short and help quickly recognize the item.
+Titles are ephemeral, they don't need to capture fully the task but contain enough hints that they can be differentiated among currently active items.
+Good titles: `Fix flag xyz`, `Reproduce banner flicker`
+Bad title: `issue follow-up`, `Fix the flag abc identified on banner 42 on June 16 when user click twice`
 
-Bad title: `Agent issue follow-up`
+The description should be written in a descriptive style as you would do on a ticket tracking system.
+It should be very actionable and include enough context to be self-contained.
+If you file an item as a related work or follow up work, consider that the person that will work on it might have no context of your current session and all they will know is the repository at the chosen branch along with the item description that you sent.
 
-### Useful creation variants
+An item is always created from the default integration branch of the repo; if you want to start it from the commit in the current worktree, use `--base=@`.
+
+A new item is added in the backlog and not acted on. You can start an agent automatically to tackle it with `--start`.
+
+## Completing work items
+
+When the work on the item is completed and commited on the local branch, use:
 
 ```bash
-wi new --json --deep --desc-file "$handoff" "<title>"             # focused deep work
-wi new --json --repo /path/to/repo --desc-file "$handoff" "<title>"
-wi new --json --base HEAD --desc-file "$handoff" "<title>"        # intentionally depends on current branch
-wi new --json --home --desc-file "$handoff" "<title>"             # explicitly requested trunk/home work
-wi new --json --label backend --label bug --desc-file "$handoff" "<title>"
+wi merge
 ```
 
-Normally omit `--base`: the item uses the local default branch commit without fetching. Use `--base HEAD` only for intentionally stacked work. Use `--home` only when the user explicitly wants the repository's primary default-branch checkout.
+to merge it to the default integration branch.
+This command does not push or sync the remote, if this is required this should be done with regular git commands.
 
-Ordinary `wi new` creates a `backlog` item; it does not start work. For several follow-ups, create one handoff at a time and verify each result before continuing.
-
-To delegate immediately without switching away from the current session, pass the self-contained description directly as `--prompt`:
+Once an item is merged and all work scoped to the task is settled (or accounted for in follow-up items), an item can be archived.
+Never run the archive command without explicit instructions from the user.
+Usually this is rather ran as part of review and management of items, not directly within an item, so use:
 
 ```bash
-wi new --json --prompt "<complete task context and acceptance criteria>" "<title>"
+wi archive --item ITEM_NAME
 ```
 
-This persists the prompt as the description, moves the item to `working`, starts the normal tmux/TUI runtime without attaching or switching this session, and sends the prompt to Pi. The user can attach later as usual. Add `--agent-mode rpc` only for intentionally headless work. Use ordinary `--desc-file` to file backlog work.
+## Update item state
 
-The restricted agent endpoint rejects `--prompt`, lifecycle changes, runtime control, and other operator actions. When that endpoint is active, file backlog work with `--desc-file` instead of trying to bypass the restriction.
+Avoid updating wi items unless explicitly asked to do so.
+
+```bash
+wi label --json
+wi label backend reliability
+wi label --remove blocked
+
+wi state show --json
+wi state set waiting
+wi state set working
+wi state set backlog
+wi state set archived
+```
+
+`state set` changes durable lifecycle only. It does not start/stop agents or clean terminal/workspace resources.
 
 ## Review work items
 
 Use when asked to inventory, review, or triage current work:
 
 ```bash
-wi list --json                         # active items plus live observations
-wi list --json --no-agent              # durable-state-only inventory
+wi list --json
 wi list --json --state working
 wi list --json --label +backend --label -blocked
-wi list --json --all                   # include archived
+wi list --json --all # To include archived items
 ```
-
-The list is a projection, not the full task specification. Inspect relevant items with:
-
-```bash
-wi show --json --item <selector>
-```
-
-Report lifecycle state separately from derived agent/worktree status. Do not mutate items merely because they appear stale.
-
-## Contact another running agent
-
-Only when explicitly asked, and only when the available daemon endpoint permits runtime control:
-
-```bash
-wi agent runtime status --json --item <selector>
-wi agent control send --json --item <selector> "<self-contained message>"
-wi agent monitor --json --item <selector> --limit 50
-```
-
-For a substantial message, use `wi agent control send --file <path>`. Add `--follow-up` when the input must wait for the current run to settle. To wait for new runtime events:
-
-```bash
-wi agent monitor --json --item <selector> --follow
-```
-
-Bound unattended follow mode with an external timeout. Delivery is not completion. Runtime events are compact, so use the target item's conversation when full response text is required. Do not bypass a restricted agent endpoint that rejects runtime control.
-
-## Update labels or state
-
-Only when requested:
-
-```bash
-wi label --json --item <selector>                         # inspect
-wi label --item <selector> backend reliability           # add
-wi label --remove --item <selector> blocked               # remove
-
-wi state show --json --item <selector>
-wi state set waiting --item <selector>
-wi state set working --item <selector>
-wi state set backlog --item <selector>
-wi state set archived --item <selector>
-```
-
-`state set` changes durable lifecycle only. It does not start/stop agents or clean terminal/workspace resources; do not present it as workflow cleanup.
-
-## Report outcomes
-
-Report only verified results: created IDs, slugs, titles, control delivery, observed runtime evidence, or metadata actually changed. Do not imply that creating an item started work or that delivering a message completed it.

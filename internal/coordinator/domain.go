@@ -120,6 +120,9 @@ func (d *Database) CanonicalManifest(itemID string) (CanonicalManifest, error) {
 		result.Revision = decodeUint64(tx.Bucket(bucketRevisions).Get([]byte(itemID)))
 		return nil
 	})
+	if err == nil {
+		err = d.resolveRepository(&result.Manifest.Repository)
+	}
 	return result, err
 }
 

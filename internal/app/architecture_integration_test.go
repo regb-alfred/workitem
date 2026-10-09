@@ -17,6 +17,7 @@ import (
 	"github.com/regb/workitem/internal/agent"
 	piadapter "github.com/regb/workitem/internal/agentdriver/pi"
 	"github.com/regb/workitem/internal/app"
+	"github.com/regb/workitem/internal/config"
 	gitpkg "github.com/regb/workitem/internal/git"
 	"github.com/regb/workitem/internal/model"
 	processpkg "github.com/regb/workitem/internal/process"
@@ -66,9 +67,6 @@ func (f *fakeGit) DetectRepository(ctx context.Context, dir, revision string) (m
 	return f.info, nil
 }
 func (f *fakeGit) DefaultBranch(context.Context, string) (string, error) { return "main", nil }
-func (f *fakeGit) RepositoryHome(context.Context, string) (model.RepositoryHomeInfo, error) {
-	return model.RepositoryHomeInfo{Path: f.info.Repository.RootAtCreation, Branch: "main"}, nil
-}
 func (f *fakeGit) Head(ctx context.Context, dir string) (string, error) {
 	if f.head != "" {
 		return f.head, nil
@@ -115,10 +113,6 @@ func (f *fakeGit) Switch(ctx context.Context, dir, branch, startPoint string, cr
 	}
 	f.worktrees[dir] = branch
 	return nil
-}
-func (f *fakeGit) WorktreeRemove(ctx context.Context, repoRoot, path string, force bool) error {
-	delete(f.worktrees, path)
-	return os.RemoveAll(path)
 }
 func (f *fakeGit) DeleteBranch(ctx context.Context, repoRoot, branch string, force bool) error {
 	delete(f.branches, branch)
@@ -1023,13 +1017,13 @@ func TestCoreWorkspaceAndTmuxAdapterAreIndependent(t *testing.T) {
 	if !terminal.Created || len(ft.ensured) != 1 || afterTerminal.PrimaryConversation != nil {
 		t.Fatalf("terminal ensure crossed agent boundary: terminal=%+v manifest=%+v tmux=%+v", terminal, afterTerminal, ft.ensured)
 	}
-	if _, err := application.ReleaseWorkItemWorkspace(context.Background(), app.ResolveOptions{Selector: created.Manifest.ID}, false); err == nil || !strings.Contains(err.Error(), "terminal session") {
+	if _, err := application.ReleaseWorkItemWorkspace(context.Background(), app.ResolveOptions{Selector: created.Manifest.ID}); err == nil || !strings.Contains(err.Error(), "terminal session") {
 		t.Fatalf("workspace release should require explicit terminal close: %v", err)
 	}
 	if _, err := application.CloseTerminal(context.Background(), app.ResolveOptions{Selector: created.Manifest.ID}); err != nil {
 		t.Fatal(err)
 	}
-	released, err := application.ReleaseWorkItemWorkspace(context.Background(), app.ResolveOptions{Selector: created.Manifest.ID}, false)
+	released, err := application.ReleaseWorkItemWorkspace(context.Background(), app.ResolveOptions{Selector: created.Manifest.ID})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1771,7 +1765,7 @@ func TestHeadlessRuntimeUsesNativeControlWithoutTmux(t *testing.T) {
 	if strings.Join(launcher.spec.Args, " ") != strings.Join([]string{"agent", "exec", "--item", itemID, "--conversation", sessionID, "--runtime", ensured.Runtime.ID, "--mode", "headless"}, " ") {
 		t.Fatalf("launcher args = %+v", launcher.spec.Args)
 	}
-	if got := envValue(launcher.spec.Env, "PATH"); got != "/clean/bin" {
+	if got := envValue(launcher.spec.Env, "PATH"); got != "/usr/local/bin:/clean/bin" {
 		t.Fatalf("runtime PATH = %q", got)
 	}
 	if got := envValue(launcher.spec.Env, "PI_SESSION_ID"); got != "" {
@@ -1872,7 +1866,7 @@ func TestEnsureAgentRuntimeRetriesEmptyPanePathAndRejectsDifferentCheckout(t *te
 	}
 }
 
-func TestNewAgentWorkItemStartsDetachedHeadlessRuntimeAndSubmitsDescription(t *testing.T) {
+func TestNewAgentWorkItemStartsDetachedHeadlessRuntimeWithSeparateMessage(t *testing.T) {
 	root, err := os.MkdirTemp("/tmp", "wi-new-agent-")
 	if err != nil {
 		t.Fatal(err)
@@ -1926,8 +1920,10 @@ func TestNewAgentWorkItemStartsDetachedHeadlessRuntimeAndSubmitsDescription(t *t
 		}
 	}()
 
+	// A configured default must not override this explicit message.
+	application.AgentConfig.StartupMessage = "Read wi show and follow the acceptance criteria."
 	prompt := "Investigate the refresh race and add a regression test."
-	result, err := application.NewAgentWorkItem(context.Background(), app.NewWorkItemOptions{Title: "Refresh race", Description: prompt, CWD: t.TempDir()}, agent.ModeHeadless, "planner")
+	result, err := application.NewAgentWorkItem(context.Background(), app.NewWorkItemOptions{Title: "Refresh race", Description: "The refresh operation can race with writes. Add a regression test.", CWD: t.TempDir()}, agent.ModeHeadless, prompt, "planner")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1941,11 +1937,16 @@ func TestNewAgentWorkItemStartsDetachedHeadlessRuntimeAndSubmitsDescription(t *t
 	if err != nil {
 		t.Fatal(err)
 	}
-	if shown.Description != prompt || shown.Manifest.State != model.StateWorking {
+	if shown.Description != "The refresh operation can race with writes. Add a regression test." || shown.Manifest.State != model.StateWorking {
 		t.Fatalf("shown = %+v", shown)
 	}
 	if launcher.spec.CWD == "" || strings.Join(launcher.spec.Args, " ") == "" {
 		t.Fatalf("launcher spec = %+v", launcher.spec)
+	}
+	// No ID is available for another control request. Resume must only enter
+	// the existing conversation, even with a configured startup message.
+	if _, err := application.ResumeWorkItemInMode(context.Background(), app.ResolveOptions{Selector: itemID}, false, agent.ModeHeadless); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -2003,7 +2004,7 @@ func TestNewAgentWorkItemDefaultsToDetachedTUIWithoutAttaching(t *testing.T) {
 		}
 	}()
 
-	result, err := application.NewAgentWorkItem(context.Background(), app.NewWorkItemOptions{Title: "Detached TUI", Description: "Implement the requested change.", CWD: t.TempDir()}, "", "planner")
+	result, err := application.NewAgentWorkItem(context.Background(), app.NewWorkItemOptions{Title: "Detached TUI", Description: "Implement the requested change.", CWD: t.TempDir()}, "", "", "planner")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2013,8 +2014,12 @@ func TestNewAgentWorkItemDefaultsToDetachedTUIWithoutAttaching(t *testing.T) {
 	if len(ft.attach) != 0 {
 		t.Fatalf("unexpected tmux attachment: %+v", ft.attach)
 	}
-	if !result.Control.Submitted {
+	if !result.Control.Submitted || result.Control.Command.Message != config.DefaultStartupMessage {
 		t.Fatalf("control result = %+v", result.Control)
+	}
+	shown, err := application.ShowWorkItem(context.Background(), app.ResolveOptions{Selector: itemID})
+	if err != nil || shown.Description != "Implement the requested change." {
+		t.Fatalf("description=%q error=%v", shown.Description, err)
 	}
 }
 
@@ -2035,6 +2040,9 @@ func TestAgentExecHoldsLockAndRunsPiWithExplicitRootConversationLocator(t *testi
 	var driverEnv []string
 	application.RunAgentDriver = func(_ context.Context, _ string, _ []string, request driverprotocol.LaunchRequest, environment []string, onReady func(driverprotocol.Ready) error) error {
 		driverEnv = append([]string(nil), environment...)
+		if len(request.Skills) != 1 || request.Skills[0].Name != "wi" || len(request.Skills[0].Files) == 0 {
+			t.Fatal("runtime request omitted the bundled wi skill")
+		}
 		fp.sessionPath = request.Conversation.Locator
 		fp.cwd = request.Runtime.CWD
 		fp.env = request.Environment
@@ -2151,39 +2159,6 @@ func TestAgentExecRefusesLockedRootSession(t *testing.T) {
 	}
 }
 
-func TestArchiveRepositoryHomeReleasesClaimWithoutTouchingCheckout(t *testing.T) {
-	st := store.New(t.TempDir())
-	root := t.TempDir()
-	fg := newFakeGit(t)
-	fg.info.Repository.RootAtCreation = root
-	fg.info.Repository.GitCommonDir = filepath.Join(root, ".git")
-	fg.worktrees[root] = "main"
-	application := newTestApp(st, fg)
-	application.Tmux = &fakeTmux{}
-	application.Clock = fixedClock{testutil.Time()}
-	ids := []string{testutil.ID(t, 101), testutil.ID(t, 102)}
-	idx := 0
-	application.NewID = func() (string, error) { id := ids[idx]; idx++; return id, nil }
-	created, err := application.NewWorkItem(context.Background(), app.NewWorkItemOptions{Title: "Mainline", Home: true, CWD: root})
-	if err != nil {
-		t.Fatal(err)
-	}
-	archived, err := application.Archive(context.Background(), app.ResolveOptions{Selector: created.Manifest.ID}, false)
-	if err != nil {
-		t.Fatal(err)
-	}
-	checkout := archived.Manifest.Checkout
-	if checkout.Specification.Kind != model.WorkspaceKindRepositoryHome || checkout.Present() || checkout.Claim != nil {
-		t.Fatalf("checkout=%+v", checkout)
-	}
-	if _, err := os.Stat(root); err != nil {
-		t.Fatalf("repository home was touched: %v", err)
-	}
-	if _, err := application.NewWorkItem(context.Background(), app.NewWorkItemOptions{Title: "Next mainline", Home: true, CWD: root}); err != nil {
-		t.Fatalf("new home claim after archive: %v", err)
-	}
-}
-
 func TestNewWorkItemUsesStableReadableBranch(t *testing.T) {
 	st := store.New(t.TempDir())
 	id := testutil.ID(t, 8)
@@ -2251,7 +2226,7 @@ func TestCheckoutRemoveDoesNotArchiveAndCreateReusesBranch(t *testing.T) {
 	if initial.Checkout.Specification.Kind != model.WorkspaceKindManagedSlot {
 		t.Fatalf("assigned checkout kind = %q", initial.Checkout.Specification.Kind)
 	}
-	removed, err := application.CheckoutRemove(context.Background(), app.ResolveOptions{Selector: id}, false)
+	removed, err := application.CheckoutRemove(context.Background(), app.ResolveOptions{Selector: id})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2279,7 +2254,7 @@ func TestCheckoutRemoveDoesNotArchiveAndCreateReusesBranch(t *testing.T) {
 	}
 }
 
-func TestCheckoutRemoveRefusesDirtyWithoutForce(t *testing.T) {
+func TestCheckoutRemoveRefusesDirty(t *testing.T) {
 	st := store.New(t.TempDir())
 	id := testutil.ID(t, 11)
 	fg := newFakeGit(t)
@@ -2293,11 +2268,8 @@ func TestCheckoutRemoveRefusesDirtyWithoutForce(t *testing.T) {
 		t.Fatal(err)
 	}
 	fg.status = " M file.go\n"
-	if _, err := application.CheckoutRemove(context.Background(), app.ResolveOptions{Selector: id}, false); err == nil {
+	if _, err := application.CheckoutRemove(context.Background(), app.ResolveOptions{Selector: id}); err == nil {
 		t.Fatal("expected dirty checkout release to fail")
-	}
-	if _, err := application.CheckoutRemove(context.Background(), app.ResolveOptions{Selector: id}, true); err == nil {
-		t.Fatal("expected forced dirty slot release to fail")
 	}
 }
 

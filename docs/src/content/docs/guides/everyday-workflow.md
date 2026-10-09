@@ -3,14 +3,14 @@ title: Everyday workflow
 description: Move work from capture through review without losing context.
 ---
 
-This guide uses the composed commands intended for normal use.
+This guide assumes a [registered repository](../../concepts/repositories/) and current Wi item context. Outside an item, add `--repo NAME` when creating work.
 
 ## Capture work first
 
 Create backlog items as soon as the task is clear enough to hand off:
 
 ```bash
-wi new --label backend --desc-file task.md "Harden token refresh"
+wi new --label backend --desc-file task.md --title "Harden token refresh"
 ```
 
 The description should survive independently of your current terminal and chat history.
@@ -18,7 +18,7 @@ The description should survive independently of your current terminal and chat h
 Use `--deep` when the item should consume configured deep-work capacity:
 
 ```bash
-wi new --deep --desc-file design.md "Redesign token storage"
+wi new --deep --desc-file design.md --title "Redesign token storage"
 ```
 
 ## Start deliberately
@@ -32,10 +32,10 @@ Starting changes backlog to working, checks capacity, materializes the workspace
 For a small task where the title is enough context, create and start it in one command:
 
 ```bash
-wi start --new "Fix typo"
+wi new --title "Fix typo" --start
 ```
 
-The explicit `--new` flag prevents ordinary `start` from creating an item by accident. Use `wi new` when you need a description, labels, a custom title, or other creation options.
+`--start` creates an unattached TUI and sends the configured startup message. Enter it with `wi switch fix-typo`. Existing-item `wi start` opens a runtime without sending a message; `wi resume` never sends one.
 
 ## Supervise active work
 

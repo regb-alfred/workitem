@@ -31,14 +31,12 @@ import (
 type Git interface {
 	DetectRepository(ctx context.Context, dir, revision string) (model.RepositoryInfo, error)
 	DefaultBranch(ctx context.Context, repoRoot string) (string, error)
-	RepositoryHome(ctx context.Context, repoRoot string) (model.RepositoryHomeInfo, error)
 	Head(ctx context.Context, dir string) (string, error)
 	StatusPorcelain(ctx context.Context, dir string) (string, error)
 	CurrentBranch(ctx context.Context, dir string) (string, error)
 	BranchExists(ctx context.Context, repoRoot, branch string) (bool, error)
 	WorktreeAdd(ctx context.Context, opts gitpkg.WorktreeAddOptions) error
 	Switch(ctx context.Context, dir, branch, startPoint string, create bool) error
-	WorktreeRemove(ctx context.Context, repoRoot, path string, force bool) error
 }
 
 type Tmux interface {
@@ -89,7 +87,6 @@ type Store interface {
 	RemoveItem(id string) error
 	LockPath(id string) string
 	LoadManifest(id string) (model.Manifest, error)
-	ClaimRepositoryHome(ctx context.Context, manifest model.Manifest) error
 	ListManifests() ([]model.Manifest, []error)
 	Resolve(selector string) (model.Manifest, error)
 	ResolveActiveSlug(slug string) (model.Manifest, error)
@@ -133,6 +130,7 @@ type App struct {
 	DeepWorkConfig                 config.DeepWorkConfig
 	ItemConfig                     config.ItemConfig
 	ListConfig                     config.ListConfig
+	AgentConfig                    config.AgentConfig
 	AgentStatusConfig              config.AgentStatusConfig
 	AttentionConfig                config.AttentionConfig
 	DirenvConfig                   config.DirenvConfig
@@ -148,7 +146,7 @@ type App struct {
 
 func New(st Store, git Git) *App {
 	cfg := config.Default()
-	a := &App{Store: st, Git: git, Process: processpkg.New(), Clock: realClock{}, NewID: model.NewID, DeepWorkConfig: cfg.DeepWork, ItemConfig: cfg.Item, ListConfig: cfg.List, AgentStatusConfig: cfg.AgentStatus, AttentionConfig: cfg.Attention, DirenvConfig: cfg.Direnv, AgentsConfig: cfg.Agents, DriversConfig: cfg.Drivers, AgentRuntimeLauncher: agent.ExecLauncher{}, RunAgentDriver: agentdriver.Run, ConversationBackends: map[string]ConversationBackend{}, BundledDriverCommands: map[string]BundledDriverCommand{}}
+	a := &App{Store: st, Git: git, Process: processpkg.New(), Clock: realClock{}, NewID: model.NewID, DeepWorkConfig: cfg.DeepWork, ItemConfig: cfg.Item, ListConfig: cfg.List, AgentConfig: cfg.Agent, AgentStatusConfig: cfg.AgentStatus, AttentionConfig: cfg.Attention, DirenvConfig: cfg.Direnv, AgentsConfig: cfg.Agents, DriversConfig: cfg.Drivers, AgentRuntimeLauncher: agent.ExecLauncher{}, RunAgentDriver: agentdriver.Run, ConversationBackends: map[string]ConversationBackend{}, BundledDriverCommands: map[string]BundledDriverCommand{}}
 	return a
 }
 

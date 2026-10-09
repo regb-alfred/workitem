@@ -35,6 +35,10 @@ func ensureDaemonRunning(ctx context.Context, paths xdg.Paths, socketPath string
 	if errors.As(err, &compatibility) {
 		shutdownCtx, shutdownCancel := context.WithTimeout(ctx, 2*time.Second)
 		if compatibility.Kind == "build" {
+			if status.Database.SchemaVersion != coordinator.SchemaVersion {
+				shutdownCancel()
+				return status, false, fmt.Errorf("cannot automatically replace daemon schema %d with supported schema %d; use a matching wi build", status.Database.SchemaVersion, coordinator.SchemaVersion)
+			}
 			err = client.Shutdown(shutdownCtx)
 		} else {
 			err = fmt.Errorf("cannot automatically replace incompatible daemon: %w", compatibility)

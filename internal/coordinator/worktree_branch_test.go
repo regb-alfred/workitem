@@ -23,22 +23,16 @@ func TestProjectedWorktreeBranchPolicy(t *testing.T) {
 	git("-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "--allow-empty", "-m", "initial")
 	base := git("rev-parse", "HEAD")
 	observer := NewExternalObserver(nil, t.TempDir())
-	for _, kind := range []string{model.WorkspaceKindRepositoryHome, model.WorkspaceKindManagedSlot} {
-		for _, detached := range []bool{false, true} {
-			if detached {
-				git("checkout", "--detach", base)
-			} else {
-				git("checkout", "main")
-			}
-			m := model.Manifest{Repository: model.Repository{CreatedFromCommit: base}, Checkout: model.Checkout{Specification: model.CheckoutSpecification{Kind: kind, Branch: "master"}, ClaimGeneration: 1, Claim: &model.WorkspaceClaim{ID: "test-claim", Generation: 1, Executor: model.ExecutorLocal, Path: path}}}
-			got := observer.observeWorktree(context.Background(), m)
-			if kind == model.WorkspaceKindRepositoryHome {
-				if got.Status != "clean" || got.ExpectedBranch != "" || got.BranchMismatch {
-					t.Fatalf("home=%+v", got)
-				}
-			} else if got.Status != "changed" || !got.BranchMismatch || !got.HasChanges {
-				t.Fatalf("managed=%+v", got)
-			}
+	for _, detached := range []bool{false, true} {
+		if detached {
+			git("checkout", "--detach", base)
+		} else {
+			git("checkout", "main")
+		}
+		m := model.Manifest{Repository: model.Repository{CreatedFromCommit: base}, Checkout: model.Checkout{Specification: model.CheckoutSpecification{Kind: model.WorkspaceKindManagedSlot, Branch: "master"}, ClaimGeneration: 1, Claim: &model.WorkspaceClaim{ID: "test-claim", Generation: 1, Executor: model.ExecutorLocal, Path: path}}}
+		got := observer.observeWorktree(context.Background(), m)
+		if got.Status != "changed" || !got.BranchMismatch || !got.HasChanges {
+			t.Fatalf("managed=%+v", got)
 		}
 	}
 }

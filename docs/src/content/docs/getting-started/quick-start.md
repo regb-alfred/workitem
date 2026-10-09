@@ -3,7 +3,13 @@ title: Quick start
 description: Create a work item, give its agent a task, and complete the work.
 ---
 
-Run these commands inside a Git repository. There are two useful ways to begin: work interactively in Pi, or delegate a prompt without entering the agent session.
+First [register a repository](../../concepts/repositories/):
+
+```bash
+wi repo add project --from /path/to/repository --branch main
+```
+
+Outside an existing Wi item, pass `--repo project` when creating work. There are two useful ways to begin: work interactively in Pi, or delegate a prompt without entering the agent session.
 
 ## Path 1: work interactively
 
@@ -18,7 +24,7 @@ Done when:
 - tests cover success after a retry and final failure
 TASK
 
-wi new --desc-file /tmp/task.md "Add API retries"
+wi new --title "Add API retries" --repo project --desc-file /tmp/task.md
 ```
 
 `wi new` prints the item ID and active slug. It creates a backlog item but no worktree, tmux session, conversation, or process.
@@ -43,16 +49,14 @@ You can now work with Pi normally. Leave the tmux session when you want to do so
 
 ## Path 2: delegate without attaching
 
-To store and submit the initial prompt in one operation:
+To store the description and start an agent with the configured startup message:
 
 ```bash
-wi new \
-  --agent-mode headless \
-  --prompt "Add bounded retry handling to the API client, test success after a retry and final failure, then report what changed." \
-  "Add API retries"
+wi new --title "Add API retries" --repo project \
+  --desc-file /tmp/task.md --start --agent-mode headless
 ```
 
-This creates the item, moves it to `working`, starts a headless runtime, and sends the prompt to Pi. Omit `--agent-mode headless` to start an unattached TUI runtime that you can enter later.
+This creates the item, moves it to `working`, starts a headless runtime, and asks the agent to read the task with `wi show`. Pass `--prompt TEXT` with `--start` to override that startup message; it does not change the description. Omit `--agent-mode headless` to start an unattached TUI runtime that you can enter later.
 
 Watch the delegated item:
 
@@ -61,6 +65,8 @@ wi list
 wi agent status add-api-retries
 wi agent monitor --item add-api-retries --limit 50
 ```
+
+These two paths are alternatives; do not create both examples with the same slug in one walkthrough. `wi resume` never sends a startup message.
 
 Control delivery means the runtime accepted the prompt. It does not mean the task is complete.
 

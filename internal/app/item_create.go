@@ -9,17 +9,18 @@ import (
 )
 
 type NewWorkItemOptions struct {
-	Title           string
-	Slug            string
-	Description     string
-	Labels          []string
-	NoDefaultLabels bool
-	DeepWork        bool
-	Base            string
-	Home            bool
-	CWD             string
-	Env             map[string]string
-	Agent           string
+	Repository       *model.Repository
+	RepositoryLabels []string
+	Title            string
+	Slug             string
+	Description      string
+	Labels           []string
+	NoDefaultLabels  bool
+	DeepWork         bool
+	Base             string
+	CWD              string
+	Env              map[string]string
+	Agent            string
 }
 
 type NewWorkItemResult struct {
@@ -46,8 +47,8 @@ func (a *App) PrepareNewWorkItem(ctx context.Context, opts NewWorkItemOptions) (
 	res, err := a.itemService().NewWorkItem(ctx, itemcore.NewOptions{
 		Title: opts.Title, Slug: opts.Slug, Description: opts.Description, Agent: agentName,
 		Labels: opts.Labels, NoDefaultLabels: opts.NoDefaultLabels,
-		DeepWork: opts.DeepWork, Base: opts.Base, Home: opts.Home,
-		CWD: opts.CWD, Env: opts.Env, PrepareOnly: true,
+		DeepWork: opts.DeepWork, Base: opts.Base,
+		CWD: opts.CWD, Env: opts.Env, PrepareOnly: true, Repository: opts.Repository, RepositoryLabels: opts.RepositoryLabels,
 	})
 	if err != nil {
 		return PreparedNewWorkItem{}, err
@@ -68,8 +69,8 @@ func (a *App) NewWorkItem(ctx context.Context, opts NewWorkItemOptions) (NewWork
 	res, err := a.itemService().NewWorkItem(ctx, itemcore.NewOptions{
 		Title: opts.Title, Slug: opts.Slug, Description: opts.Description, Agent: agentName,
 		Labels: opts.Labels, NoDefaultLabels: opts.NoDefaultLabels,
-		DeepWork: opts.DeepWork, Base: opts.Base, Home: opts.Home,
-		CWD: opts.CWD, Env: opts.Env,
+		DeepWork: opts.DeepWork, Base: opts.Base,
+		CWD: opts.CWD, Env: opts.Env, Repository: opts.Repository, RepositoryLabels: opts.RepositoryLabels,
 	})
 	if err != nil {
 		return NewWorkItemResult{}, err

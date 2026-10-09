@@ -55,9 +55,6 @@ func (f *fakeGit) DetectRepository(ctx context.Context, dir, revision string) (m
 	return f.info, nil
 }
 func (f *fakeGit) DefaultBranch(context.Context, string) (string, error) { return "main", nil }
-func (f *fakeGit) RepositoryHome(context.Context, string) (model.RepositoryHomeInfo, error) {
-	return model.RepositoryHomeInfo{Path: f.info.Repository.RootAtCreation, Branch: "main"}, nil
-}
 func (f *fakeGit) Head(ctx context.Context, dir string) (string, error) {
 	return strings.Repeat("b", 40), nil
 }
@@ -99,9 +96,6 @@ func (f *fakeGit) Switch(ctx context.Context, dir, branch, startPoint string, cr
 	}
 	f.worktrees[dir] = branch
 	return nil
-}
-func (f *fakeGit) WorktreeRemove(ctx context.Context, repoRoot, path string, force bool) error {
-	return os.RemoveAll(path)
 }
 func (f *fakeGit) DeleteBranch(ctx context.Context, repoRoot, branch string, force bool) error {
 	delete(f.branches, branch)
@@ -176,8 +170,8 @@ func TestGlobalAndCommandHelp(t *testing.T) {
 	}{
 		{name: "global", args: []string{"--help"}, want: []string{"Work:", "Metadata and history:", "Agent and checkout:", "Administration:", "Item selection:", "wi help [command [subcommand]]"}},
 		{name: "list flag", args: []string{"list", "--help"}, want: []string{"wi list - List and filter work items", "WI_LIST_LABELS", "config list.labels < WI_LIST_LABELS < CLI --label", "!,+personal"}},
-		{name: "new prompt", args: []string{"new", "--help"}, want: []string{"--prompt <text>", "--agent-mode <mode>", "normal tmux runtime", "does not switch or attach"}},
-		{name: "start new", args: []string{"start", "--help"}, want: []string{"--new", "--home", "--no-default-labels", "minimal item from the supplied title"}},
+		{name: "new prompt", args: []string{"new", "--title", "--help"}, want: []string{"--prompt <text>", "--agent-mode <mode>", "normal tmux runtime", "does not switch or attach"}},
+		{name: "start", args: []string{"start", "--help"}, want: []string{"active slug", "--agent-mode", "--force"}},
 		{name: "control help", args: []string{"help", "agent", "control"}, want: []string{"wi agent control", "agent control send", "without consulting derived busy/idle status"}},
 		{name: "nested short flag", args: []string{"workspace", "ensure", "-h"}, want: []string{"wi workspace ensure", "does not create tmux or a conversation"}},
 	} {
@@ -233,7 +227,7 @@ func TestNewJSONOutputStability(t *testing.T) {
 	if err := os.WriteFile(descPath, []byte("Race fix"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	code := cli.Run(context.Background(), []string{"--json", "new", "--slug", "Refresh Race", "--desc-file", "desc.md", "--label", "auth", "Fix refresh-token race"}, cli.Config{
+	code := cli.Run(context.Background(), []string{"--json", "new", "--slug", "Refresh Race", "--desc-file", "desc.md", "--label", "auth", "--title", "Fix refresh-token race"}, cli.Config{
 		Stdout: stdout,
 		Stderr: stderr,
 		CWD:    cwd,
@@ -279,12 +273,12 @@ func TestNewJSONOutputStability(t *testing.T) {
 func TestNewExplicitSlugConflictFails(t *testing.T) {
 	stdout, stderr, application := configuredApp(t)
 	cfg := cli.Config{Stdout: stdout, Stderr: stderr, CWD: t.TempDir(), Env: map[string]string{}, App: application}
-	if code := cli.Run(context.Background(), []string{"new", "--slug", "custom slug", "First"}, cfg); code != cli.ExitOK {
+	if code := cli.Run(context.Background(), []string{"new", "--slug", "custom slug", "--title", "First"}, cfg); code != cli.ExitOK {
 		t.Fatalf("first new exit code = %d stderr=%s", code, stderr.String())
 	}
 	stdout.Reset()
 	stderr.Reset()
-	if code := cli.Run(context.Background(), []string{"new", "--slug", "custom-slug", "Second"}, cfg); code == cli.ExitOK || !strings.Contains(stderr.String(), "already taken") {
+	if code := cli.Run(context.Background(), []string{"new", "--slug", "custom-slug", "--title", "Second"}, cfg); code == cli.ExitOK || !strings.Contains(stderr.String(), "already taken") {
 		t.Fatalf("expected slug conflict, code=%d stderr=%s", code, stderr.String())
 	}
 }
@@ -301,40 +295,13 @@ func TestNewRepoFlagUsesProvidedRepositoryPath(t *testing.T) {
 	application.Clock = fixedClock{testutil.Time()}
 	application.NewID = func() (string, error) { return testutil.ID(t, 58), nil }
 	cwd := t.TempDir()
-	code := cli.Run(context.Background(), []string{"new", "--repo", "../other", "Other Repo Item"}, cli.Config{Stdout: stdout, Stderr: stderr, CWD: cwd, Env: map[string]string{}, App: application})
+	code := cli.Run(context.Background(), []string{"new", "--repo", "../other", "--title", "Other Repo Item"}, cli.Config{Stdout: stdout, Stderr: stderr, CWD: cwd, Env: map[string]string{}, App: application})
 	if code != cli.ExitOK {
 		t.Fatalf("exit code = %d stderr=%s", code, stderr.String())
 	}
 	want := filepath.Clean(filepath.Join(cwd, "../other"))
 	if fg.firstDetectedDir != want {
 		t.Fatalf("detected dir = %q, want %q", fg.firstDetectedDir, want)
-	}
-}
-
-func TestNewHomeCLIRecordsBorrowedCheckout(t *testing.T) {
-	stdout := &bytes.Buffer{}
-	stderr := &bytes.Buffer{}
-	st := store.New(t.TempDir())
-	root := t.TempDir()
-	commit := strings.Repeat("a", 40)
-	fg := &fakeGit{branches: map[string]bool{}, info: model.RepositoryInfo{Repository: model.Repository{RootAtCreation: root, GitCommonDir: filepath.Join(root, ".git"), CreatedFromCommit: commit}, Commit: commit}}
-	application := app.New(st, fg)
-	application.ConversationBackends["pi"] = fakeConversationBackend{}
-	bindTestCoordinator(t, application, st)
-	application.Clock = fixedClock{testutil.Time()}
-	application.NewID = func() (string, error) { return testutil.ID(t, 59), nil }
-	code := cli.Run(context.Background(), []string{"--json", "new", "--home", "Mainline"}, cli.Config{Stdout: stdout, Stderr: stderr, CWD: root, Env: map[string]string{}, App: application})
-	if code != cli.ExitOK {
-		t.Fatalf("exit code=%d stderr=%s", code, stderr.String())
-	}
-	var got struct {
-		Manifest *model.Manifest `json:"manifest"`
-	}
-	if err := json.Unmarshal(stdout.Bytes(), &got); err != nil {
-		t.Fatal(err)
-	}
-	if got.Manifest == nil || got.Manifest.Checkout.Specification.Kind != model.WorkspaceKindRepositoryHome || got.Manifest.Checkout.Claim == nil || got.Manifest.Checkout.Claim.Path != root {
-		t.Fatalf("result=%+v", got)
 	}
 }
 
@@ -488,7 +455,7 @@ func TestNewInheritsUserAndProjectDefaultLabels(t *testing.T) {
 		t.Fatal(err)
 	}
 	application.ItemConfig.Defaults.Labels = []string{"user", "shared"}
-	code := cli.Run(context.Background(), []string{"--json", "new", "--label", "explicit", "Defaults"}, cli.Config{Stdout: stdout, Stderr: stderr, CWD: repo, Env: map[string]string{"WI_ITEM_DEFAULT_LABELS": "environment,shared"}, App: application})
+	code := cli.Run(context.Background(), []string{"--json", "new", "--label", "explicit", "--title", "Defaults"}, cli.Config{Stdout: stdout, Stderr: stderr, CWD: repo, Env: map[string]string{"WI_ITEM_DEFAULT_LABELS": "environment,shared"}, App: application})
 	if code != cli.ExitOK {
 		t.Fatalf("code=%d stderr=%s", code, stderr.String())
 	}
@@ -509,10 +476,10 @@ func TestNewPromptValidation(t *testing.T) {
 		args []string
 		want string
 	}{
-		{name: "empty", args: []string{"new", "--prompt", "", "Prompted"}, want: "--prompt requires a non-empty description"},
-		{name: "conflict", args: []string{"new", "--prompt", "work now", "--desc-file", "handoff.md", "Prompted"}, want: "pass either --prompt or --desc-file, not both"},
-		{name: "mode without prompt", args: []string{"new", "--agent-mode", "headless", "Prompted"}, want: "--agent-mode requires --prompt"},
-		{name: "invalid mode", args: []string{"new", "--agent-mode", "batch", "--prompt", "work now", "Prompted"}, want: "expected tui or headless"},
+		{name: "empty", args: []string{"new", "--start", "--prompt", "", "--title", "Prompted"}, want: "--prompt requires a non-empty message"},
+		{name: "prompt without start", args: []string{"new", "--prompt", "work now", "--title", "Prompted"}, want: "--prompt requires --start"},
+		{name: "mode without start", args: []string{"new", "--agent-mode", "headless", "--title", "Prompted"}, want: "--agent-mode requires --start"},
+		{name: "invalid mode", args: []string{"new", "--start", "--agent-mode", "batch", "--title", "Prompted"}, want: "expected tui or headless"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			stdout, stderr, application := configuredApp(t)
@@ -527,7 +494,7 @@ func TestNewPromptValidation(t *testing.T) {
 func TestNewNoDefaultLabels(t *testing.T) {
 	stdout, stderr, application := configuredApp(t)
 	application.ItemConfig.Defaults.Labels = []string{"user"}
-	code := cli.Run(context.Background(), []string{"--json", "new", "--no-default-labels", "--label", "explicit", "No defaults"}, cli.Config{Stdout: stdout, Stderr: stderr, CWD: t.TempDir(), Env: map[string]string{"WI_ITEM_DEFAULT_LABELS": "environment"}, App: application})
+	code := cli.Run(context.Background(), []string{"--json", "new", "--no-default-labels", "--label", "explicit", "--title", "No defaults"}, cli.Config{Stdout: stdout, Stderr: stderr, CWD: t.TempDir(), Env: map[string]string{"WI_ITEM_DEFAULT_LABELS": "environment"}, App: application})
 	if code != cli.ExitOK {
 		t.Fatalf("code=%d stderr=%s", code, stderr.String())
 	}
@@ -539,50 +506,6 @@ func TestNewNoDefaultLabels(t *testing.T) {
 	}
 	if labels := strings.Join(got.Manifest.Labels, ","); labels != "explicit" {
 		t.Fatalf("labels = %q", labels)
-	}
-}
-
-func TestStartNewCreatesAndStartsMinimalItem(t *testing.T) {
-	stdout, stderr, application := configuredApp(t)
-	application.ItemConfig.Defaults.Labels = []string{"default"}
-	code := cli.Run(context.Background(), []string{"--json", "start", "--new", "--no-default-labels", "Add API retries"}, cli.Config{Stdout: stdout, Stderr: stderr, CWD: t.TempDir(), Env: map[string]string{}, App: application})
-	if code != cli.ExitOK {
-		t.Fatalf("code=%d stderr=%s", code, stderr.String())
-	}
-	var result app.StartNewWorkItemResult
-	if err := json.Unmarshal(stdout.Bytes(), &result); err != nil {
-		t.Fatal(err)
-	}
-	if result.New.Manifest.Title != "Add API retries" || result.New.Manifest.Slug != "add-api-retries" || len(result.New.Manifest.Labels) != 0 {
-		t.Fatalf("created manifest = %+v", result.New.Manifest)
-	}
-	if result.Start.Transition.State != model.StateWorking || result.Start.Workspace.AgentRuntime == nil {
-		t.Fatalf("start result = %+v", result.Start)
-	}
-}
-
-func TestStartNewSupportsRepositoryHome(t *testing.T) {
-	stdout, stderr, application := configuredApp(t)
-	code := cli.Run(context.Background(), []string{"--json", "start", "--new", "--home", "Mainline maintenance"}, cli.Config{Stdout: stdout, Stderr: stderr, CWD: t.TempDir(), Env: map[string]string{}, App: application})
-	if code != cli.ExitOK {
-		t.Fatalf("code=%d stderr=%s", code, stderr.String())
-	}
-	var result app.StartNewWorkItemResult
-	if err := json.Unmarshal(stdout.Bytes(), &result); err != nil {
-		t.Fatal(err)
-	}
-	if result.New.Manifest.Checkout.Specification.Kind != model.WorkspaceKindRepositoryHome || result.Start.Transition.State != model.StateWorking {
-		t.Fatalf("result = %+v", result)
-	}
-}
-
-func TestStartCreationFlagsRequireNew(t *testing.T) {
-	for _, flag := range []string{"--home", "--no-default-labels"} {
-		stdout, stderr, application := configuredApp(t)
-		code := cli.Run(context.Background(), []string{"start", flag, "existing"}, cli.Config{Stdout: stdout, Stderr: stderr, CWD: t.TempDir(), Env: map[string]string{}, App: application})
-		if code != cli.ExitUsage || !strings.Contains(stderr.String(), "requires --new") {
-			t.Fatalf("flag=%s code=%d stderr=%s", flag, code, stderr.String())
-		}
 	}
 }
 
@@ -618,13 +541,13 @@ func TestStartAcceptsUniqueSlugSubstring(t *testing.T) {
 }
 
 func TestNewRejectsRemovedStartCompositionFlags(t *testing.T) {
-	for _, flag := range []string{"--start", "--agent-mode", "--force"} {
+	for _, flag := range []string{"--agent-mode", "--force"} {
 		stdout, stderr, application := configuredApp(t)
 		args := []string{"new", flag}
 		if flag == "--agent-mode" {
 			args = append(args, "headless")
 		}
-		args = append(args, "item")
+		args = append(args, "--title", "item")
 		if code := cli.Run(context.Background(), args, cli.Config{Stdout: stdout, Stderr: stderr, CWD: t.TempDir(), Env: map[string]string{}, App: application}); code != cli.ExitUsage {
 			t.Fatalf("new %s code=%d stdout=%s stderr=%s", flag, code, stdout.String(), stderr.String())
 		}
@@ -633,7 +556,7 @@ func TestNewRejectsRemovedStartCompositionFlags(t *testing.T) {
 
 func TestNewDeepFlagSetsBuiltInDeepWork(t *testing.T) {
 	stdout, stderr, application := configuredApp(t)
-	code := cli.Run(context.Background(), []string{"--json", "new", "--deep", "Deep work item"}, cli.Config{
+	code := cli.Run(context.Background(), []string{"--json", "new", "--deep", "--title", "Deep work item"}, cli.Config{
 		Stdout: stdout,
 		Stderr: stderr,
 		CWD:    t.TempDir(),
@@ -696,31 +619,6 @@ func TestDeepCommandSetsAndClearsBuiltInDeepWork(t *testing.T) {
 	}
 }
 
-func TestListOmitsStateAndMarksRepositoryHome(t *testing.T) {
-	stdout := &bytes.Buffer{}
-	stderr := &bytes.Buffer{}
-	st := store.New(t.TempDir())
-	root := t.TempDir()
-	commit := strings.Repeat("a", 40)
-	fg := &fakeGit{branches: map[string]bool{}, info: model.RepositoryInfo{Repository: model.Repository{RootAtCreation: root, GitCommonDir: filepath.Join(root, ".git"), CreatedFromCommit: commit}, Commit: commit}}
-	application := app.New(st, fg)
-	application.ConversationBackends["pi"] = fakeConversationBackend{}
-	bindTestCoordinator(t, application, st)
-	application.Clock = fixedClock{testutil.Time()}
-	application.NewID = func() (string, error) { return testutil.ID(t, 57), nil }
-	if _, err := application.NewWorkItem(context.Background(), app.NewWorkItemOptions{Title: "Home row", Home: true, CWD: root}); err != nil {
-		t.Fatal(err)
-	}
-	code := cli.Run(context.Background(), []string{"list", "--no-agent"}, cli.Config{Stdout: stdout, Stderr: stderr, CWD: root, Env: map[string]string{}, App: application})
-	if code != cli.ExitOK {
-		t.Fatalf("exit=%d stderr=%s", code, stderr.String())
-	}
-	out := stdout.String()
-	if strings.Contains(out, "STATE") || !strings.Contains(out, "(home)") {
-		t.Fatalf("list output:\n%s", out)
-	}
-}
-
 func TestListShowsRepositoryLastColumn(t *testing.T) {
 	stdout := &bytes.Buffer{}
 	stderr := &bytes.Buffer{}
@@ -736,7 +634,7 @@ func TestListShowsRepositoryLastColumn(t *testing.T) {
 	application.Tmux = &fakeTmux{}
 	application.Clock = fixedClock{testutil.Time()}
 	application.NewID = func() (string, error) { return testutil.ID(t, 57), nil }
-	code := cli.Run(context.Background(), []string{"new", "--label", "networking", "Repo Column"}, cli.Config{Stdout: stdout, Stderr: stderr, CWD: t.TempDir(), Env: map[string]string{}, App: application})
+	code := cli.Run(context.Background(), []string{"new", "--label", "networking", "--title", "Repo Column"}, cli.Config{Stdout: stdout, Stderr: stderr, CWD: t.TempDir(), Env: map[string]string{}, App: application})
 	if code != cli.ExitOK {
 		t.Fatalf("new exit code = %d stderr=%s", code, stderr.String())
 	}
@@ -809,12 +707,12 @@ func TestListShowsUniqueIDPrefixes(t *testing.T) {
 		return id, nil
 	}
 	cfg := cli.Config{Stdout: stdout, Stderr: stderr, CWD: t.TempDir(), Env: map[string]string{}, App: application}
-	if code := cli.Run(context.Background(), []string{"--json", "new", "new test"}, cfg); code != cli.ExitOK {
+	if code := cli.Run(context.Background(), []string{"--json", "new", "--title", "new test"}, cfg); code != cli.ExitOK {
 		t.Fatalf("first new exit code = %d stderr=%s", code, stderr.String())
 	}
 	stdout.Reset()
 	stderr.Reset()
-	if code := cli.Run(context.Background(), []string{"--json", "new", "new test"}, cfg); code != cli.ExitOK {
+	if code := cli.Run(context.Background(), []string{"--json", "new", "--title", "new test"}, cfg); code != cli.ExitOK {
 		t.Fatalf("second new exit code = %d stderr=%s", code, stderr.String())
 	}
 	stdout.Reset()
@@ -1025,7 +923,7 @@ func TestNewDependentFlagsAndLiteralDelimiter(t *testing.T) {
 	}
 	stdout.Reset()
 	stderr.Reset()
-	if code := cli.Run(context.Background(), []string{"new", "--", "--json"}, cfg); code != cli.ExitOK {
+	if code := cli.Run(context.Background(), []string{"new", "--title=--json"}, cfg); code != cli.ExitOK {
 		t.Fatalf("literal --json code=%d stderr=%s", code, stderr.String())
 	}
 	if strings.HasPrefix(strings.TrimSpace(stdout.String()), "{") {
@@ -1033,7 +931,7 @@ func TestNewDependentFlagsAndLiteralDelimiter(t *testing.T) {
 	}
 	stdout.Reset()
 	stderr.Reset()
-	if code := cli.Run(context.Background(), []string{"new", "--", "--help"}, cfg); code != cli.ExitOK {
+	if code := cli.Run(context.Background(), []string{"new", "--title=--help"}, cfg); code != cli.ExitOK {
 		t.Fatalf("literal --help code=%d stderr=%s", code, stderr.String())
 	}
 	if strings.Contains(stdout.String(), "Usage:") {

@@ -26,16 +26,17 @@ wi start exact-active-slug
 
 Create missing work with `wi new`, then start the slug returned by that command.
 
-## The repository moved after item creation
+## Repository context is missing
 
-A start or workspace ensure may fail because the recorded repository checkout no longer exists. Point the item at the moved checkout without changing its creation provenance:
+New work requires a registered repository. Inside a Wi item, it inherits that repository; outside one, pass `--repo NAME`:
 
 ```bash
-wi workspace relocate --repository /new/path/to/repository --item ITEM
-wi switch ITEM
+wi repo list
+wi repo add project --from /path/to/repository --branch main
+wi new --title "Task" --repo project
 ```
 
-The replacement repository must have the recorded origin and contain the created-from commit. Relocation requires an absent workspace. Release an assigned workspace first if it is still safe and accessible.
+External source checkouts can move without affecting the independent owned store. If the data root itself moved, Git worktree metadata may need repair; restore or repair from a verified backup rather than using symlinks. See [Repositories](../../concepts/repositories/) and [Backups](../data-and-diagnostics/#what-to-back-up).
 
 ## Deep-work capacity is full
 
@@ -62,7 +63,7 @@ tmux -V
 fzf --version
 ```
 
-TUI mode requires Pi and tmux. The selector-less `wi switch` picker also requires fzf. Use an explicit item to bypass the picker, or Headless mode to avoid tmux:
+TUI mode requires Pi and tmux. The selector-less `wi switch` picker also requires fzf. Use an explicit item to bypass the picker, or headless mode to avoid tmux:
 
 ```bash
 wi switch item-slug
@@ -73,10 +74,10 @@ wi start --agent-mode headless item-slug
 
 `wi start` starts or enters a runtime but does not submit `DESCRIPTION.md` as a prompt. In the TUI, ask the agent to run `wi show` and act on the description.
 
-For creation and immediate delivery, use `wi new --prompt`. For an existing working item, use:
+For creation and immediate delivery, use `wi new --title "Task" --desc-file task.md --start`. `--prompt` requires `--start` and overrides only the startup message. For an existing working item, use:
 
 ```bash
-wi agent control send --item ITEM "Read `wi show`, implement the task, and report the result."
+wi agent control send --item ITEM 'Read the task with wi show, implement it, and report the result.'
 ```
 
 ## An `.envrc` is not loaded
@@ -99,7 +100,7 @@ wi list
 
 Busy, waiting, backlog, archived, label-filtered, and problem items are outside the queue. Resume waiting work or repair the reported problem rather than forcing navigation.
 
-## TUI and Headless mode will not switch
+## TUI and headless mode will not switch
 
 One durable conversation can have only one active runtime owner. Pi cannot attach its TUI to a live headless process.
 
@@ -144,7 +145,7 @@ git status --short
 git branch --list main
 ```
 
-Commit intended source changes before merging. If the target worktree is dirty, its changed paths must not overlap incoming paths. `wi merge` does not fetch or create the target branch.
+Commit intended source changes before merging. The registered integration branch must not be checked out in the owned store. For another explicit target, dirty paths in its worktree must not overlap incoming paths. `wi merge` does not fetch or create the target branch.
 
 ## Agent status reports a problem
 
@@ -156,7 +157,7 @@ wi agent monitor --item ITEM --limit 100
 wi daemon doctor
 ```
 
-A mismatched checkout, stale incomplete activity, failed runtime, or unavailable process may produce a problem observation. Stop a verified stale runtime before ensuring a replacement. Avoid deleting sockets, runtime records, or Pi JSONL manually.
+Stale incomplete activity, failed runtimes, or unavailable processes may produce a problem observation. Branch divergence in a managed slot is reported as `changed` rather than preventing inspection or navigation. Stop a verified stale runtime before ensuring a replacement. Avoid deleting sockets, runtime records, or Pi JSONL manually.
 
 ## A tmux server restart orphaned active runtimes
 

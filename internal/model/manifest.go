@@ -20,8 +20,9 @@ const (
 	CheckoutPresent = "present"
 	CheckoutAbsent  = "absent"
 
-	WorkspaceKindManagedSlot    = "managed-slot"
-	WorkspaceKindRepositoryHome = "repository-home"
+	WorkspaceKindManagedSlot = "managed-slot"
+	// LegacyWorkspaceKindRepositoryHome is used only by offline migration tools.
+	LegacyWorkspaceKindRepositoryHome = "repository-home"
 
 	ExecutorLocal = "local"
 )
@@ -48,6 +49,9 @@ func (m Manifest) TerminalSessionName() string {
 }
 
 type Repository struct {
+	ID                string `json:"id,omitempty"`
+	Name              string `json:"-"`
+	IntegrationBranch string `json:"-"`
 	RootAtCreation    string `json:"root_at_creation"`
 	GitCommonDir      string `json:"git_common_dir"`
 	RemoteURL         string `json:"remote_url"`
@@ -55,9 +59,43 @@ type Repository struct {
 	CurrentRoot       string `json:"current_root,omitempty"`
 }
 
-// OperationalRoot returns the repository checkout used for current Git
-// operations. RootAtCreation remains immutable provenance when a repository is
-// relocated.
+// MarshalJSON persists only repository identity and immutable item provenance for
+// registered repositories. Operational fields are resolved, never copied intent.
+func (r Repository) MarshalJSON() ([]byte, error) {
+	if r.ID != "" {
+		return json.Marshal(struct {
+			ID     string `json:"id"`
+			Commit string `json:"created_from_commit"`
+		}{r.ID, r.CreatedFromCommit})
+	}
+	type legacy Repository
+	return json.Marshal(legacy(r))
+}
+
+func (r *Repository) UnmarshalJSON(data []byte) error {
+	type decoded Repository
+	var value decoded
+	if err := json.Unmarshal(data, &value); err != nil {
+		return err
+	}
+	if value.ID != "" {
+		var fields map[string]json.RawMessage
+		if err := json.Unmarshal(data, &fields); err != nil {
+			return err
+		}
+		for _, key := range []string{"root_at_creation", "git_common_dir", "remote_url", "current_root"} {
+			if _, ok := fields[key]; ok {
+				return fmt.Errorf("registered repository references must not contain %s", key)
+			}
+		}
+	}
+	*r = Repository(value)
+	return nil
+}
+
+// OperationalRoot returns the resolved Git location used for operations. For
+// registered repositories this is the owned bare store; immutable provenance is
+// the repository ID and CreatedFromCommit, not the hydrated filesystem paths.
 func (r Repository) OperationalRoot() string {
 	if root := strings.TrimSpace(r.CurrentRoot); root != "" {
 		return root
@@ -66,6 +104,9 @@ func (r Repository) OperationalRoot() string {
 }
 
 func RepositoryKey(repository Repository) string {
+	if repository.ID != "" {
+		return repository.ID
+	}
 	value := strings.TrimSpace(repository.GitCommonDir)
 	if value == "" {
 		value = strings.TrimSpace(repository.RemoteURL)
@@ -123,9 +164,6 @@ func (c *Checkout) UnmarshalJSON(data []byte) error {
 }
 
 func NewCheckout(kind, executor, branch string) Checkout {
-	if kind == WorkspaceKindRepositoryHome {
-		branch = ""
-	}
 	return Checkout{Specification: CheckoutSpecification{Kind: kind, Executor: executor, Branch: branch}}
 }
 
@@ -193,9 +231,7 @@ func NewManifest(id, slug, title string, labels []string, deepWork bool, now tim
 	if checkout.Specification.Executor == "" {
 		checkout.Specification.Executor = ExecutorLocal
 	}
-	if checkout.Specification.Kind == WorkspaceKindRepositoryHome {
-		checkout.Specification.Branch = ""
-	} else if strings.TrimSpace(checkout.Specification.Branch) == "" {
+	if strings.TrimSpace(checkout.Specification.Branch) == "" {
 		checkout.Specification.Branch = ItemBranchName(slug, id)
 	}
 	normalizedLabels, err := NormalizeLabels(labels)

@@ -17,7 +17,7 @@ import (
 )
 
 const (
-	SchemaVersion = 4
+	SchemaVersion = 5
 	DatabaseFile  = "wi.db"
 )
 
@@ -445,6 +445,9 @@ func (d *Database) ListManifests() ([]model.Manifest, error) {
 		var manifest model.Manifest
 		if err := json.Unmarshal(values[id], &manifest); err != nil {
 			return nil, fmt.Errorf("decode manifest projection %s: %w", id, err)
+		}
+		if err := d.resolveRepository(&manifest.Repository); err != nil {
+			return nil, err
 		}
 		manifests = append(manifests, manifest)
 	}

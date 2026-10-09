@@ -18,9 +18,9 @@ func TestNormalizeManifestRejectsMalformedClaims(t *testing.T) {
 		"relative path":              func(m *model.Manifest) { m.Checkout.Claim.Path = "workspace" },
 		"unclean path":               func(m *model.Manifest) { m.Checkout.Claim.Path = "/workspace/../other" },
 		"executor mismatch":          func(m *model.Manifest) { m.Checkout.Claim.Executor = "other" },
-		"home branch intent": func(m *model.Manifest) {
-			m.Checkout.Specification.Kind = model.WorkspaceKindRepositoryHome
-			m.Checkout.Specification.Branch = "main"
+		"retired home kind": func(m *model.Manifest) {
+			m.Checkout.Specification.Kind = "repository-home"
+			m.Checkout.Specification.Branch = ""
 		},
 	}
 	for name, change := range changes {

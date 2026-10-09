@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"github.com/regb/workitem/internal/app"
-	"github.com/regb/workitem/internal/model"
 )
 
 func runShow(ctx context.Context, args []string, cfg Config, jsonOut bool) error {
@@ -57,8 +56,6 @@ func runShow(ctx context.Context, args []string, cfg Config, jsonOut bool) error
 	}
 	if m.Checkout.Claim != nil {
 		fmt.Fprintf(cfg.Stdout, "Checkout path: %s\n", m.Checkout.Claim.Path)
-	} else if m.Checkout.Specification.Kind == model.WorkspaceKindRepositoryHome {
-		fmt.Fprintf(cfg.Stdout, "Repository home: %s\n", m.Repository.OperationalRoot())
 	}
 	fmt.Fprintf(cfg.Stdout, "Terminal: %s %s\n", "tmux", m.TerminalSessionName())
 	if m.PrimaryConversation != nil {

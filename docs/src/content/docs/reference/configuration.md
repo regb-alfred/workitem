@@ -30,6 +30,9 @@ priority = "recent-request"
 [direnv]
 auto_trust_repositories = ["/home/me/src/trusted-project"]
 
+[agent]
+startup_message = "Read this work item's description with `wi show`. Work on the task it describes. Run relevant checks and report the outcome."
+
 [agent_status.markers]
 busy = "agent"
 idle = "review"
@@ -54,10 +57,10 @@ extensions = ["/home/me/tools/web-search.ts"]
 
 ## Default labels
 
-New items combine labels from user configuration, repository configuration, `WI_ITEM_DEFAULT_LABELS`, and explicit `--label` flags. `--no-default-labels` suppresses configured and environment defaults.
+New items combine labels from user configuration, `.config/wi.toml` read from the selected starting commit in the owned store, `WI_ITEM_DEFAULT_LABELS`, and explicit `--label` flags. Dirty edits in the external onboarding checkout are not configuration for new items. `--no-default-labels` suppresses configured and environment defaults.
 
 ```bash
-WI_ITEM_DEFAULT_LABELS="jira,backend" wi new "Fix issue"
+WI_ITEM_DEFAULT_LABELS="jira,backend" wi new --title "Fix issue"
 ```
 
 ## List filters
@@ -88,15 +91,21 @@ For commands that consume project-scoped CLI settings, `wi` also reads `WI_LIST_
 
 Repository configuration cannot grant execution trust. This prevents a checked-in file from approving its own commands.
 
+## Initial agent message
+
+`agent.startup_message` is the global message sent by `wi new --start`. It must be a non-empty quoted string. Escape newlines as `\n` within the string. `--prompt TEXT` overrides this message for that creation and requires `--start`. Neither message changes the durable description supplied through `--desc-file`.
+
+`wi resume` never sends a startup message. `wi start` for an existing item opens its runtime without submitting a message. Use `wi agent control send` to explicitly start a turn in an existing conversation.
+
 ## Coding agents and drivers
 
-Every item records an agent definition name. `default` is selected when `wi new` or `wi start --new` does not receive `--agent`; without configuration it uses the packaged `pi` driver.
+Every item records an agent definition name. `default` is selected when `wi new` does not receive `--agent`; without configuration it uses the packaged `pi` driver.
 
 `[agents.<name>]` selects a registered driver. The nested `config` table belongs to that driver and is validated by it. The Pi driver accepts `executable` and `extensions`. `[drivers.<name>.defaults]` provides settings shared by every agent using that driver; agent configuration overrides those defaults.
 
 ```bash
-wi new --agent web-search "Research upstream behavior"
-wi start --new --agent web-search "Investigate rendering"
+wi new --agent web-search --title "Research upstream behavior"
+wi new --title "Investigate rendering" --agent web-search --start
 ```
 
 External driver programs use wi's versioned bootstrap protocol. The standard Pi driver runs as the separate `wi internal-driver pi` process from the installed `wi` binary, so it is always present and has the same build version. A configured `drivers.<name>.command` selects a trusted external driver executable; repository configuration cannot register drivers or agent definitions.
@@ -111,4 +120,12 @@ Use command help to see variables accepted by a specific command. Common variabl
 | `WI_ITEM_DEFAULT_LABELS` | Labels inherited by new items |
 | `NO_COLOR` | Disable colored text output |
 | `WI_ID` | Resolve the current item inside managed environments |
+| `WI_DIR` | Native item directory |
+| `WI_WORKTREE` | Current assigned checkout path |
+| `WI_AGENT_CONVERSATION_DIR` | Driver-owned native conversation directory |
+| `WI_REPOSITORY` | Owned bare Git store in Wi-created tmux shells; not guaranteed in every headless driver |
 | `WI_AGENT_DAEMON_SOCKET` | Use the restricted agent-tool daemon endpoint |
+
+Agent runtimes also receive `WI_AGENT_RUNTIME_ID`, `WI_AGENT_MODE`, `WI_AGENT_CONTROL_SOCKET`, and `WI_AGENT_EVENT_SOCKET`. Tmux panes receive `TMUX` and `TMUX_PANE`; headless runtimes do not require them. Driver-specific variables are implementation details.
+
+Changing into a worktree does not inject these variables, and changing out of one does not clear them. Contextual base selection still validates the actual directory and Git store. Sandboxes may expose a narrower environment.

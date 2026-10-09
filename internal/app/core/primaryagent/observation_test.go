@@ -27,13 +27,11 @@ func TestWorktreeBranchPolicy(t *testing.T) {
 		mismatch                                bool
 		err                                     error
 	}{
-		{name: "home rename", kind: model.WorkspaceKindRepositoryHome, branch: "main", head: "base", status: "clean"},
-		{name: "home temporary branch", kind: model.WorkspaceKindRepositoryHome, branch: "experiment", head: "new", status: "changed"},
-		{name: "home detached", kind: model.WorkspaceKindRepositoryHome, head: "base", status: "clean"},
-		{name: "home dirty", kind: model.WorkspaceKindRepositoryHome, branch: "main", head: "base", dirty: " M file", status: "changed"},
+		{name: "managed clean", kind: model.WorkspaceKindManagedSlot, branch: "master", head: "base", status: "clean"},
+		{name: "managed dirty", kind: model.WorkspaceKindManagedSlot, branch: "master", head: "base", dirty: " M file", status: "changed"},
 		{name: "managed divergence", kind: model.WorkspaceKindManagedSlot, branch: "experiment", head: "base", status: "changed", mismatch: true},
 		{name: "managed detached", kind: model.WorkspaceKindManagedSlot, head: "base", status: "changed", mismatch: true},
-		{name: "inspection failure", kind: model.WorkspaceKindRepositoryHome, status: "problem", err: errors.New("git failed")},
+		{name: "inspection failure", kind: model.WorkspaceKindManagedSlot, status: "problem", mismatch: true, err: errors.New("git failed")},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			path := t.TempDir()
@@ -42,9 +40,6 @@ func TestWorktreeBranchPolicy(t *testing.T) {
 			got, warnings := s.inspectWorktree(context.Background(), m)
 			if got.Status != tc.status || got.BranchMismatch != tc.mismatch || got.CurrentBranch != tc.branch {
 				t.Fatalf("status=%+v warnings=%v", got, warnings)
-			}
-			if tc.kind == model.WorkspaceKindRepositoryHome && (got.ExpectedBranch != "" || got.BranchMatches) {
-				t.Fatalf("home has branch constraint: %+v", got)
 			}
 			if tc.err == nil && !tc.mismatch && len(warnings) != 0 {
 				t.Fatalf("warnings=%v", warnings)

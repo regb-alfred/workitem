@@ -26,7 +26,6 @@ type Store interface {
 type Git interface {
 	DetectRepository(context.Context, string, string) (model.RepositoryInfo, error)
 	DefaultBranch(context.Context, string) (string, error)
-	RepositoryHome(context.Context, string) (model.RepositoryHomeInfo, error)
 	BranchExists(context.Context, string, string) (bool, error)
 }
 
@@ -48,18 +47,19 @@ func New(st Store, git Git, resolve Resolver, now func() time.Time, newID func()
 }
 
 type NewOptions struct {
-	Title           string
-	Slug            string
-	Description     string
-	Labels          []string
-	NoDefaultLabels bool
-	DeepWork        bool
-	Base            string
-	Home            bool
-	CWD             string
-	Env             map[string]string
-	PrepareOnly     bool
-	Agent           string
+	Repository       *model.Repository
+	RepositoryLabels []string
+	Title            string
+	Slug             string
+	Description      string
+	Labels           []string
+	NoDefaultLabels  bool
+	DeepWork         bool
+	Base             string
+	CWD              string
+	Env              map[string]string
+	PrepareOnly      bool
+	Agent            string
 }
 
 type NewResult struct {
@@ -145,59 +145,33 @@ func (s *Service) NewWorkItem(ctx context.Context, opts NewOptions) (NewResult, 
 	if err = s.store.Ensure(); err != nil {
 		return NewResult{}, err
 	}
-	repo, err := s.git.DetectRepository(ctx, cwd, opts.Base)
-	if err != nil {
-		return NewResult{}, err
-	}
+	var repo model.RepositoryInfo
 	warnings := []string{}
 	defaultBranch := ""
-	var home model.RepositoryHomeInfo
-	if opts.Home && strings.TrimSpace(opts.Base) != "" {
-		return NewResult{}, fmt.Errorf("--home and --base cannot be used together")
-	}
-	if strings.TrimSpace(opts.Base) == "" {
-		defaultBranch, err = s.git.DefaultBranch(ctx, repo.Repository.RootAtCreation)
+	if opts.Repository != nil {
+		repo = model.RepositoryInfo{Repository: *opts.Repository, Commit: opts.Repository.CreatedFromCommit}
+	} else {
+		repo, err = s.git.DetectRepository(ctx, cwd, opts.Base)
 		if err != nil {
-			if opts.Home {
-				return NewResult{}, fmt.Errorf("determine local default branch for repository home: %w", err)
-			}
-			warnings = append(warnings, "could not determine local default branch; based new item on current HEAD: "+err.Error())
-		} else {
-			repo, err = s.git.DetectRepository(ctx, repo.Repository.RootAtCreation, defaultBranch)
+			return NewResult{}, err
+		}
+		if strings.TrimSpace(opts.Base) == "" {
+			defaultBranch, err = s.git.DefaultBranch(ctx, repo.Repository.RootAtCreation)
 			if err != nil {
-				return NewResult{}, fmt.Errorf("resolve local default branch %q: %w", defaultBranch, err)
+				warnings = append(warnings, "could not determine local default branch; based new item on current HEAD: "+err.Error())
+			} else {
+				repo, err = s.git.DetectRepository(ctx, repo.Repository.RootAtCreation, defaultBranch)
+				if err != nil {
+					return NewResult{}, fmt.Errorf("resolve local default branch %q: %w", defaultBranch, err)
+				}
 			}
 		}
-	}
-	if opts.Home {
-		home, err = s.git.RepositoryHome(ctx, repo.Repository.RootAtCreation)
-		if err != nil {
-			return NewResult{}, fmt.Errorf("inspect repository home: %w", err)
-		}
-		if strings.TrimSpace(home.Path) == "" || home.Bare {
-			return NewResult{}, fmt.Errorf("repository has no primary working checkout; create one explicitly or omit --home")
-		}
-		info, statErr := os.Stat(home.Path)
-		if statErr != nil {
-			return NewResult{}, fmt.Errorf("repository home checkout path is unavailable: %w", statErr)
-		}
-		if !info.IsDir() {
-			return NewResult{}, fmt.Errorf("repository home checkout path is not a directory: %s", home.Path)
-		}
-		if home.Detached || strings.TrimSpace(home.Branch) == "" {
-			return NewResult{}, fmt.Errorf("repository home at %s is detached; expected local default branch %s", home.Path, defaultBranch)
-		}
-		if home.Branch != defaultBranch {
-			return NewResult{}, fmt.Errorf("repository home is on branch %s; expected local default branch %s; switch it manually, then retry", home.Branch, defaultBranch)
-		}
-		// Keep future Git operations independent of the linked worktree from
-		// which --home may have been invoked.
-		repo.Repository.RootAtCreation = home.Path
 	}
 	labels := []string{}
 	if !opts.NoDefaultLabels {
 		labels = append(labels, s.defaultLabels...)
-		if s.projectDefaultLabels != nil {
+		labels = append(labels, opts.RepositoryLabels...)
+		if s.projectDefaultLabels != nil && opts.Repository == nil {
 			projectLabels, projectWarnings, err := s.projectDefaultLabels(repo.Repository.RootAtCreation)
 			warnings = append(warnings, projectWarnings...)
 			if err != nil {
@@ -225,13 +199,7 @@ func (s *Service) NewWorkItem(ctx context.Context, opts NewOptions) (NewResult, 
 		return NewResult{}, err
 	}
 	checkout := model.Checkout{Specification: model.CheckoutSpecification{Kind: model.WorkspaceKindManagedSlot, Branch: model.ItemBranchName(slug, id)}}
-	if opts.Home {
-		path := home.Path
-		checkout = model.NewCheckout(model.WorkspaceKindRepositoryHome, model.ExecutorLocal, defaultBranch)
-		if _, err := checkout.AssignNewClaim(model.ExecutorLocal, model.RepositoryKey(repo.Repository), "", path); err != nil {
-			return NewResult{}, err
-		}
-	} else {
+	if opts.Repository == nil {
 		exists, err := s.git.BranchExists(ctx, repo.Repository.RootAtCreation, checkout.Specification.Branch)
 		if err != nil {
 			return NewResult{}, err

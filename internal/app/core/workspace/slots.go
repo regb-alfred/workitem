@@ -205,26 +205,12 @@ func (s *Service) ensureCheckoutBranch(ctx context.Context, m model.Manifest) er
 	return nil
 }
 
-func (s *Service) releaseCheckout(ctx context.Context, m model.Manifest, force bool) (CheckoutRelease, error) {
+func (s *Service) releaseCheckout(ctx context.Context, m model.Manifest) (CheckoutRelease, error) {
 	if !m.Checkout.Present() || m.Checkout.Claim == nil || m.Checkout.Claim.Path == "" {
 		return CheckoutRelease{Manifest: m}, nil
 	}
-	if m.Checkout.Specification.Kind == model.WorkspaceKindRepositoryHome {
-		if force {
-			if _, err := os.Stat(m.Checkout.Claim.Path); os.IsNotExist(err) {
-				m.Checkout.ClearClaim()
-				return CheckoutRelease{Manifest: m, Slot: false, Warnings: []string{"missing repository-home checkout required no filesystem changes; released only its logical work-item claim"}}, nil
-			}
-		}
-		if err := s.ensureCheckoutBranch(ctx, m); err != nil {
-			return CheckoutRelease{}, err
-		}
-		head, err := s.git.Head(ctx, m.Checkout.Claim.Path)
-		if err != nil {
-			return CheckoutRelease{}, fmt.Errorf("could not read repository-home HEAD: %w", err)
-		}
-		m.Checkout.ClearClaim()
-		return CheckoutRelease{Manifest: m, LastHead: head, Slot: false, Warnings: []string{"repository-home checkout was left untouched; released only its logical work-item claim"}}, nil
+	if err := validateCheckoutKind(m.Checkout); err != nil {
+		return CheckoutRelease{}, err
 	}
 	path := m.Checkout.Claim.Path
 	if err := s.validateManagedCheckoutPath(path); err != nil {

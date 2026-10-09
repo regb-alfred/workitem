@@ -65,9 +65,6 @@ func (a *App) MergeWorkItem(ctx context.Context, opts MergeOptions) (MergeResult
 		return MergeResult{}, err
 	}
 	res := MergeResult{WorkItemID: m.ID, SourceBranch: expectedCheckoutBranch(m), Warnings: []string{}}
-	if m.Checkout.Specification.Kind == model.WorkspaceKindRepositoryHome {
-		return res, fmt.Errorf("repository-home checkout is user-owned; integrate, commit, and push with normal Git commands instead of `wi merge`")
-	}
 	if m.State != model.StateWorking && m.State != model.StateWaiting {
 		return res, fmt.Errorf("work item %s is %s; merge requires a working or waiting item", m.ID, m.State)
 	}
@@ -98,9 +95,13 @@ func (a *App) MergeWorkItem(ctx context.Context, opts MergeOptions) (MergeResult
 	repoRoot := m.Repository.OperationalRoot()
 	target := strings.TrimSpace(opts.Target)
 	if target == "" {
-		target, err = mg.DefaultBranch(ctx, repoRoot)
-		if err != nil {
-			return res, err
+		if m.Repository.ID != "" {
+			target = m.Repository.IntegrationBranch
+		} else {
+			target, err = mg.DefaultBranch(ctx, repoRoot)
+			if err != nil {
+				return res, err
+			}
 		}
 	}
 	if target == res.SourceBranch {
@@ -120,6 +121,9 @@ func (a *App) MergeWorkItem(ctx context.Context, opts MergeOptions) (MergeResult
 		return res, fmt.Errorf("inspect target worktree: %w", err)
 	}
 	if targetWorktree != nil {
+		if m.Repository.ID != "" && target == m.Repository.IntegrationBranch {
+			return res, fmt.Errorf("integration branch %s is checked out at %s; release that checkout before merging", target, targetWorktree.Path)
+		}
 		res.TargetWorktreePath = targetWorktree.Path
 		info, statErr := os.Stat(targetWorktree.Path)
 		if statErr != nil {

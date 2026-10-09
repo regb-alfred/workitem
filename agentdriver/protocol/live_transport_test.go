@@ -15,7 +15,7 @@ func TestControlTransport(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer server.Close()
-	command := ControlCommand{ProtocolVersion: Version, ID: "command-1", RuntimeID: "runtime-1", WorkItemID: "item-1", Type: CommandPrompt, Message: "test", CreatedAt: time.Now()}
+	command := ControlCommand{ProtocolVersion: RuntimeVersion, ID: "command-1", RuntimeID: "runtime-1", WorkItemID: "item-1", Type: CommandPrompt, Message: "test", CreatedAt: time.Now()}
 	done := make(chan error, 1)
 	go func() {
 		done <- SubmitControl(context.Background(), filepath.Join(filepath.Dir(server.path), "control.sock"), command)
@@ -36,7 +36,7 @@ func TestControlServerCloseWaitsForActiveHandlers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	command := ControlCommand{ProtocolVersion: Version, ID: "command-1", RuntimeID: "runtime-1", WorkItemID: "item-1", Type: CommandAbort, CreatedAt: time.Now()}
+	command := ControlCommand{ProtocolVersion: RuntimeVersion, ID: "command-1", RuntimeID: "runtime-1", WorkItemID: "item-1", Type: CommandAbort, CreatedAt: time.Now()}
 	submitDone := make(chan error, 1)
 	go func() { submitDone <- SubmitControl(context.Background(), path, command) }()
 	<-server.Requests()
@@ -84,7 +84,7 @@ func TestEventTransportReportsRejection(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer server.Close()
-	event := RuntimeEvent{ProtocolVersion: Version, EventID: "event-1", RuntimeID: "runtime-1", WorkItemID: "item-1", Type: EventRuntimeReady, Timestamp: time.Now()}
+	event := RuntimeEvent{ProtocolVersion: RuntimeVersion, EventID: "event-1", RuntimeID: "runtime-1", WorkItemID: "item-1", Type: EventRuntimeReady, Timestamp: time.Now()}
 	done := make(chan error, 1)
 	go func() { done <- SubmitEvent(context.Background(), path, event) }()
 	request := <-server.Requests()

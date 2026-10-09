@@ -8,11 +8,21 @@ Each work item selects one agent definition and has at most one durable primary 
 An **agent definition** is the configured agent selected by a user, such as `default` or `web-search`. A **driver** integrates an agent family with wi. Multiple definitions may use the same driver with different settings. The implicit `default` definition uses the standard Pi driver when no configuration overrides it.
 
 ```bash
-wi new --agent web-search "Research upstream behavior"
-wi start --new --agent web-search "Investigate rendering"
+wi new --agent web-search --title "Research upstream behavior"
+wi new --title "Investigate rendering" --agent web-search --start
 ```
 
+Creation requires a [registered repository](../repositories/); outside a current item, add `--repo NAME`. Startup messages are separate from durable task descriptions; see [Delegate work](../../guides/delegation/).
+
 The conversation is part of the item's history. The runtime is a replaceable driver and backend process that opens and controls it. Stopping a runtime does not discard the conversation.
+
+## Built-in Wi skill
+
+Wi includes the skill bundled with its host binary in every new runtime's launch request. The backend driver exports it as a temporary resource. Before TUI or headless startup, the Pi driver writes a private skill directory and passes its absolute path with `--skill`. No separate skill checkout or Pi configuration entry is required, and a read-only or symlinked global skills directory is fine.
+
+The temporary files stay available while the backend runs and are cleaned up when the driver returns. Wi does not modify your global skills or settings. Remove old manually configured copies yourself to avoid duplicate `wi` names; Pi's normal collision rules still apply.
+
+Rebuilding Wi packages the current skill source. Installing the executable alone does not change an already running agent; the next runtime startup exports the bundled version. Normal backend skill loading still applies, and resume never sends an extra prompt to force it. See the [driver protocol](../../reference/agent-driver-protocol/#bundled-skills) for optional driver support.
 
 ## TUI mode
 
@@ -69,6 +79,6 @@ Control delivery confirms only that the active driver accepted the message. Use 
 
 ## One runtime at a time
 
-TUI and Headless runtimes cannot own the same conversation simultaneously. Stop the active runtime before starting another mode.
+TUI and headless runtimes cannot own the same conversation simultaneously. Stop the active runtime before starting another mode.
 
 Force cleanup stops a process only after `wi` verifies that it still belongs to the item. A stale runtime record will not cause an unrelated process to be stopped.

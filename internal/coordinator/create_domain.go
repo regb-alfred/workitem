@@ -107,6 +107,9 @@ func (d *Database) executeCreateItemCommand(command CreateItemCommand, actor str
 			result.Duplicate = true
 			return nil
 		}
+		if err := validateRepositoryReference(tx, normalized); err != nil {
+			return err
+		}
 		projection, err := tx.Bucket(bucketProjections).CreateBucketIfNotExists([]byte(ManifestProjection))
 		if err != nil {
 			return err
@@ -178,19 +181,8 @@ func validateCanonicalCreateClaims(manifest model.Manifest, existing []model.Man
 		if other.State != model.StateArchived && other.Slug == manifest.Slug {
 			return fmt.Errorf("slug %q is already taken by active work item %s", manifest.Slug, other.ID)
 		}
-		if manifest.Checkout.Specification.Kind == model.WorkspaceKindRepositoryHome && manifest.Checkout.Present() &&
-			other.Checkout.Specification.Kind == model.WorkspaceKindRepositoryHome && other.Checkout.Present() && sameRepositoryIdentity(manifest.Repository, other.Repository) {
-			return fmt.Errorf("repository home is already claimed by work item %s (%s)", other.ID, other.Slug)
-		}
 	}
 	return nil
-}
-
-func sameRepositoryIdentity(left, right model.Repository) bool {
-	if left.GitCommonDir != "" && right.GitCommonDir != "" {
-		return filepath.Clean(left.GitCommonDir) == filepath.Clean(right.GitCommonDir)
-	}
-	return filepath.Clean(left.RootAtCreation) == filepath.Clean(right.RootAtCreation)
 }
 
 func sameCreateItemCommand(left, right CreateItemCommand) bool {

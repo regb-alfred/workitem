@@ -29,6 +29,7 @@ export default defineConfig({
           label: 'Core concepts',
           items: [
             { label: 'Work items', slug: 'concepts/work-items' },
+            { label: 'Repositories', slug: 'concepts/repositories' },
             { label: 'Lifecycle', slug: 'concepts/lifecycle' },
             { label: 'Workspaces', slug: 'concepts/workspaces' },
             { label: 'Agents and conversations', slug: 'concepts/agents' },

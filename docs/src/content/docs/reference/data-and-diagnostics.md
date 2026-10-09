@@ -17,15 +17,19 @@ Path resolution follows the XDG base directory specification.
 
 Back up the data root reported by `wi info data-root`. It contains:
 
-- `wi.db`, which stores work-item metadata, lifecycle, labels, event history, and workspace and runtime records
+- `wi.db`, which stores the repository registry, work-item metadata, lifecycle, labels, event history, and workspace and runtime records
+- `repositories/<id>.git`, the independent Git stores containing integration and task branches and pinned created-from commits
+- managed worktrees, including any uncommitted state
 - each item's `DESCRIPTION.md`
-- Pi conversation JSONL files written by Pi
+- driver-owned native conversations, including Pi JSONL files
 
-The description and Pi conversation files are not duplicated in the database. Back up the complete data root rather than selecting individual files.
+Git objects, descriptions, and native conversations are not duplicated in the database. Back up the complete data root rather than selecting individual files.
 
 Logs, control sockets, cached helper files, and terminal process records live under the XDG state, runtime, or cache directories. They are operational files, not work-item history.
 
-Do not edit `wi.db` or Pi JSONL files manually.
+Do not edit `wi.db` or native conversation files manually. For a consistent backup, stop writers and keep the executable matching the database checkpoint. Moving a data root also requires repairing concrete Git worktree paths; copying `wi.db` alone is insufficient.
+
+The current repository layout uses schema 5. Older layouts require an explicit offline migration, not an automatic upgrade. Daemon replacement checks the advertised database schema, and daemon control requests must identify a matching supported schema. Older binaries cannot stop a newer writer. Health reads and fenced runtime events remain schema-independent. The completed schema 4-to-5 conversion retained external checkouts and old slots; their remaining ignored files, LFS data, and caches are separate backup concerns.
 
 ## Observation freshness
 
@@ -72,4 +76,4 @@ Data directories and daemon endpoints are restricted to the current user.
 
 The separate agent-tool socket grants fewer commands than the operator socket. Sandboxed agents can file safe managed-slot backlog work, but they cannot control lifecycle, workspaces, runtimes, terminals, deletion, or shutdown.
 
-The database stores compact runtime events, not complete prompts, responses, text deltas, tool arguments, paths, or error text. Full conversation content remains in Pi's native session files.
+The database stores compact runtime events, not complete prompts, responses, text deltas, tool arguments, paths, or error text. Full conversation content remains in driver-owned native files.

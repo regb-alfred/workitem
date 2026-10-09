@@ -42,7 +42,14 @@ func (c Client) DetectRepository(ctx context.Context, dir, revision string) (mod
 	}
 	root, err := c.output(ctx, dir, "rev-parse", "--show-toplevel")
 	if err != nil {
-		return model.RepositoryInfo{}, fmt.Errorf("%w: %v", ErrNotRepository, err)
+		bare, bareErr := c.output(ctx, dir, "rev-parse", "--is-bare-repository")
+		if bareErr != nil || strings.TrimSpace(bare) != "true" {
+			return model.RepositoryInfo{}, fmt.Errorf("%w: %v", ErrNotRepository, err)
+		}
+		root, err = c.output(ctx, dir, "rev-parse", "--absolute-git-dir")
+		if err != nil {
+			return model.RepositoryInfo{}, err
+		}
 	}
 	root, err = filepath.Abs(strings.TrimSpace(root))
 	if err != nil {
@@ -157,6 +164,7 @@ func (c Client) BranchExists(ctx context.Context, repoRoot, branch string) (bool
 		path = "git"
 	}
 	cmd := exec.CommandContext(ctx, path, "-C", repoRoot, "show-ref", "--verify", "--quiet", "refs/heads/"+branch)
+	cmd.Env = repositoryEnvironment()
 	b, err := cmd.CombinedOutput()
 	if err == nil {
 		return true, nil
@@ -387,18 +395,6 @@ func ParseWorktreeList(out string) []WorktreeInfo {
 	return worktrees
 }
 
-func (c Client) RepositoryHome(ctx context.Context, repoRoot string) (model.RepositoryHomeInfo, error) {
-	worktrees, err := c.ListWorktrees(ctx, repoRoot)
-	if err != nil {
-		return model.RepositoryHomeInfo{}, err
-	}
-	if len(worktrees) == 0 || worktrees[0].Bare {
-		return model.RepositoryHomeInfo{Bare: len(worktrees) > 0 && worktrees[0].Bare}, nil
-	}
-	primary := worktrees[0]
-	return model.RepositoryHomeInfo{Path: primary.Path, Branch: primary.Branch, Detached: primary.Detached}, nil
-}
-
 func (c Client) TargetWorktreeForBranch(ctx context.Context, repoRoot, branch string) (*WorktreeInfo, error) {
 	worktrees, err := c.ListWorktrees(ctx, repoRoot)
 	if err != nil {
@@ -470,6 +466,7 @@ func (c Client) output(ctx context.Context, dir string, args ...string) (string,
 		path = "git"
 	}
 	cmd := exec.CommandContext(ctx, path, append([]string{"-C", dir}, args...)...)
+	cmd.Env = repositoryEnvironment()
 	b, err := cmd.CombinedOutput()
 	if err != nil {
 		text := strings.TrimSpace(string(b))

@@ -12,7 +12,6 @@ type CheckoutRemoveResult = workspacecore.CheckoutRemoveResult
 type CheckoutStatusResult = workspacecore.CheckoutStatusResult
 type WorkspaceGitStatus = workspacecore.GitStatus
 type WorkspaceStatusResult = workspacecore.StatusResult
-type RelocateRepositoryResult = workspacecore.RelocateRepositoryResult
 type WorkspaceReleaseResult = workspacecore.ReleaseResult
 type checkoutRelease = workspacecore.CheckoutRelease
 
@@ -20,8 +19,8 @@ func (a *App) CheckoutCreate(ctx context.Context, opts ResolveOptions) (Checkout
 	return a.workspaceService().CheckoutCreate(ctx, opts)
 }
 
-func (a *App) CheckoutRemove(ctx context.Context, opts ResolveOptions, force bool) (CheckoutRemoveResult, error) {
-	return a.workspaceService().CheckoutRemove(ctx, opts, force)
+func (a *App) CheckoutRemove(ctx context.Context, opts ResolveOptions) (CheckoutRemoveResult, error) {
+	return a.workspaceService().CheckoutRemove(ctx, opts)
 }
 
 func (a *App) CheckoutStatus(ctx context.Context, opts ResolveOptions) (CheckoutStatusResult, error) {
@@ -31,10 +30,6 @@ func (a *App) CheckoutStatus(ctx context.Context, opts ResolveOptions) (Checkout
 // WorkspaceStatus inspects only the repository worktree.
 func (a *App) WorkspaceStatus(ctx context.Context, opts ResolveOptions) (WorkspaceStatusResult, error) {
 	return a.workspaceService().Status(ctx, opts)
-}
-
-func (a *App) RelocateWorkItemRepository(ctx context.Context, opts ResolveOptions, path string) (RelocateRepositoryResult, error) {
-	return a.workspaceService().RelocateRepository(ctx, opts, path)
 }
 
 // EnsureWorkItemWorkspace materializes only the repository worktree.
@@ -50,16 +45,16 @@ func (a *App) ensureWorkspaceCheckout(ctx context.Context, opts ResolveOptions, 
 	return a.workspaceService().EnsureCheckout(ctx, opts, m, create)
 }
 
-func (a *App) ReleaseWorkItemWorkspace(ctx context.Context, opts ResolveOptions, force bool) (WorkspaceReleaseResult, error) {
-	return a.workspaceService().Release(ctx, opts, force)
+func (a *App) ReleaseWorkItemWorkspace(ctx context.Context, opts ResolveOptions) (WorkspaceReleaseResult, error) {
+	return a.workspaceService().Release(ctx, opts)
 }
 
 func (a *App) ensureCheckoutReleasable(ctx context.Context, m model.Manifest) error {
 	return a.workspaceService().EnsureReleasable(ctx, m)
 }
 
-func (a *App) releaseCheckout(ctx context.Context, m model.Manifest, force bool) (checkoutRelease, error) {
-	return a.workspaceService().ReleaseCheckout(ctx, m, force)
+func (a *App) releaseCheckout(ctx context.Context, m model.Manifest) (checkoutRelease, error) {
+	return a.workspaceService().ReleaseCheckout(ctx, m)
 }
 
 func expectedCheckoutBranch(m model.Manifest) string {

@@ -325,9 +325,6 @@ func (o *ExternalObserver) observe(ctx context.Context, manifest model.Manifest,
 
 func (o *ExternalObserver) observeWorktree(ctx context.Context, manifest model.Manifest) *ProjectedWorktree {
 	expected := strings.TrimSpace(manifest.Checkout.Specification.Branch)
-	if manifest.Checkout.Specification.Kind == model.WorkspaceKindRepositoryHome {
-		expected = ""
-	}
 	result := &ProjectedWorktree{Status: "absent", Reason: "checkout is absent", ExpectedBranch: expected}
 	if !manifest.Checkout.Present() || manifest.Checkout.Claim == nil || strings.TrimSpace(manifest.Checkout.Claim.Path) == "" {
 		return result

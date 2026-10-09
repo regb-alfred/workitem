@@ -63,6 +63,9 @@ func Run(ctx context.Context, path string, args []string, request driverprotocol
 		_ = cmd.Wait()
 		return fmt.Errorf("unsupported runtime mode %q", request.Runtime.Mode)
 	}
+	if len(request.Skills) > 0 && !ready.Capabilities.BundledSkills {
+		fmt.Fprintf(os.Stderr, "warning: agent driver %s does not support bundled skills\n", request.Driver)
+	}
 	if onReady != nil {
 		if err := onReady(ready); err != nil {
 			_ = cmd.Process.Kill()

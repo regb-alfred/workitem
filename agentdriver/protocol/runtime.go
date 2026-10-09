@@ -12,6 +12,10 @@ const (
 	CommandShutdown = "shutdown"
 )
 
+// RuntimeVersion is independent of process bootstrap so conversation transport
+// changes do not invalidate the control/event sockets of running agents.
+const RuntimeVersion = 1
+
 type ControlCommand struct {
 	ProtocolVersion int       `json:"protocol_version"`
 	ID              string    `json:"id"`

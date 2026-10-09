@@ -70,10 +70,6 @@ func (c Client) ObserveConversation(ctx context.Context, conversation model.Conv
 }
 
 func (c Client) DecodeConversation(ctx context.Context, conversation model.Conversation, lineNumbers []uint64, lines [][]byte) ([]driverprotocol.ConversationFact, []bool, error) {
-	raw := make([]json.RawMessage, len(lines))
-	for i := range lines {
-		raw[i] = lines[i]
-	}
-	response, err := c.request(ctx, driverprotocol.OperationConversationDecode, "", nil, driverprotocol.ConversationRequest{Conversation: driverprotocol.Conversation{ID: conversation.ID, Locator: conversation.NativeLocator(), Format: conversation.Format}, LineNumbers: lineNumbers, Lines: raw})
+	response, err := c.request(ctx, driverprotocol.OperationConversationDecode, "", nil, driverprotocol.ConversationRequest{Conversation: driverprotocol.Conversation{ID: conversation.ID, Locator: conversation.NativeLocator(), Format: conversation.Format}, LineNumbers: lineNumbers, Lines: lines})
 	return response.Facts, response.Decoded, err
 }

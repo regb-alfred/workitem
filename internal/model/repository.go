@@ -14,15 +14,6 @@ type RepositoryInfo struct {
 	Commit     string
 }
 
-// RepositoryHomeInfo describes Git's primary/original working checkout. A
-// missing home is represented by an empty Path (for example, a bare repository).
-type RepositoryHomeInfo struct {
-	Path     string
-	Branch   string
-	Bare     bool
-	Detached bool
-}
-
 // SanitizeRemoteURL removes URL components that may carry credentials before
 // a remote is persisted or displayed. SCP-style SSH remotes such as
 // git@example.com:owner/repository.git do not contain URL userinfo and are

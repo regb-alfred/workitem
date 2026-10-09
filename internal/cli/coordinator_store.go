@@ -168,9 +168,6 @@ func (s *coordinatorStore) CreateItem(ctx context.Context, manifest model.Manife
 func (s *coordinatorStore) SaveManifest(ctx context.Context, manifest model.Manifest) error {
 	return s.execute(ctx, coordinator.StoreManifestSave, manifest.ID, manifest)
 }
-func (s *coordinatorStore) ClaimRepositoryHome(ctx context.Context, manifest model.Manifest) error {
-	return s.SaveManifest(ctx, manifest)
-}
 func (s *coordinatorStore) AppendEvent(ctx context.Context, id string, event model.Event) error {
 	return s.execute(ctx, coordinator.StoreEventAppend, id, event)
 }

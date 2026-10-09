@@ -58,6 +58,7 @@ type ExecSpec struct {
 	ControlSocketPath string
 	EventSocketPath   string
 	Extensions        []string
+	Skills            []string
 }
 
 func New(path string) Client {
@@ -140,6 +141,12 @@ func (c Client) ExecMode(ctx context.Context, spec ExecSpec) error {
 		if extension = strings.TrimSpace(extension); extension != "" {
 			args = append([]string{"--extension", extension}, args...)
 		}
+	}
+	for _, skill := range spec.Skills {
+		if !filepath.IsAbs(skill) {
+			return fmt.Errorf("Pi skill path must be absolute: %q", skill)
+		}
+		args = append(args, "--skill", skill)
 	}
 	path := c.Path
 	if path == "" {

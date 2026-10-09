@@ -144,7 +144,7 @@ func TestAgentSocketCreatesOnlySafeBacklogItems(t *testing.T) {
 		t.Fatalf("agent shutdown error = %v", err)
 	}
 	homeID := "01K00000000000000000000001"
-	home := model.NewManifest(homeID, "unsafe-home", "Unsafe home", nil, false, time.Now().UTC(), manifest.Repository, model.Checkout{Specification: model.CheckoutSpecification{Kind: model.WorkspaceKindRepositoryHome, Branch: "main"}})
+	home := model.NewManifest(homeID, "unsafe-home", "Unsafe home", nil, false, time.Now().UTC(), manifest.Repository, model.Checkout{Specification: model.CheckoutSpecification{Kind: "repository-home", Branch: "main"}})
 	homePath := "/repo"
 	home.Checkout.ClaimGeneration = 1
 	home.Checkout.Claim = &model.WorkspaceClaim{ID: "test-claim", Generation: 1, Executor: model.ExecutorLocal, Path: homePath}

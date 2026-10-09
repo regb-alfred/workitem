@@ -3,6 +3,7 @@ package store
 import (
 	"bufio"
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -100,9 +101,6 @@ func (s *Store) CreateItem(ctx context.Context, manifest model.Manifest, events 
 			err = releaseErr
 		}
 	}()
-	if err := s.validateRepositoryHomeClaim(manifest); err != nil {
-		return err
-	}
 	itemDir := s.ItemDir(manifest.ID)
 	if err := os.Mkdir(itemDir, 0o700); err != nil {
 		if os.IsExist(err) {
@@ -227,34 +225,6 @@ func (s *Store) LoadManifest(id string) (model.Manifest, error) {
 	return m, nil
 }
 
-func (s *Store) validateRepositoryHomeClaim(manifest model.Manifest) error {
-	if manifest.Checkout.Specification.Kind != model.WorkspaceKindRepositoryHome || !manifest.Checkout.Present() {
-		return nil
-	}
-	items, itemErrs := s.ListManifests()
-	if len(itemErrs) > 0 {
-		return fmt.Errorf("inspect repository-home claims: %w", itemErrs[0])
-	}
-	for _, item := range items {
-		if item.ID != manifest.ID && item.Checkout.Specification.Kind == model.WorkspaceKindRepositoryHome && item.Checkout.Present() && sameRepositoryIdentity(item.Repository, manifest.Repository) {
-			return fmt.Errorf("repository home is already claimed by work item %s (%s)", item.ID, item.Slug)
-		}
-	}
-	return nil
-}
-
-func sameRepositoryIdentity(left, right model.Repository) bool {
-	leftKey := strings.TrimSpace(left.GitCommonDir)
-	rightKey := strings.TrimSpace(right.GitCommonDir)
-	if leftKey == "" || rightKey == "" {
-		leftKey = strings.TrimSpace(left.RootAtCreation)
-		rightKey = strings.TrimSpace(right.RootAtCreation)
-	}
-	leftAbs, leftErr := filepath.Abs(leftKey)
-	rightAbs, rightErr := filepath.Abs(rightKey)
-	return leftErr == nil && rightErr == nil && leftAbs == rightAbs
-}
-
 // NormalizeManifest validates and canonicalizes a manifest without writing it.
 func NormalizeManifest(manifest model.Manifest) (model.Manifest, error) {
 	if err := normalizeManifest(&manifest); err != nil {
@@ -292,6 +262,24 @@ func normalizeManifest(m *model.Manifest) error {
 	if m.UpdatedAt.IsZero() {
 		return fmt.Errorf("updated_at is required")
 	}
+	if m.Repository.ID != "" {
+		if !model.ValidID(m.Repository.ID) {
+			return fmt.Errorf("invalid repository reference")
+		}
+		hash, err := hex.DecodeString(m.Repository.CreatedFromCommit)
+		if err != nil || (len(hash) != 20 && len(hash) != 32) {
+			return fmt.Errorf("created-from commit must be a complete Git object identity")
+		}
+		if m.Checkout.Specification.Kind != model.WorkspaceKindManagedSlot {
+			return fmt.Errorf("owned repositories require managed-slot checkouts")
+		}
+		if m.Checkout.Specification.Executor != "" && m.Checkout.Specification.Executor != model.ExecutorLocal {
+			return fmt.Errorf("owned repositories currently require local workspaces")
+		}
+		if m.Checkout.Claim != nil && m.Checkout.Claim.RepositoryKey != m.Repository.ID {
+			return fmt.Errorf("workspace claim belongs to a different repository")
+		}
+	}
 	remote, err := model.SanitizeRemoteURL(m.Repository.RemoteURL)
 	if err != nil {
 		return fmt.Errorf("repository remote_url: %w", err)
@@ -311,14 +299,11 @@ func normalizeManifest(m *model.Manifest) error {
 	if strings.TrimSpace(m.Checkout.Specification.Executor) == "" {
 		m.Checkout.Specification.Executor = model.ExecutorLocal
 	}
-	if m.Checkout.Specification.Kind != model.WorkspaceKindManagedSlot && m.Checkout.Specification.Kind != model.WorkspaceKindRepositoryHome {
+	if m.Checkout.Specification.Kind != model.WorkspaceKindManagedSlot {
 		return fmt.Errorf("unsupported checkout kind %q", m.Checkout.Specification.Kind)
 	}
 	if m.Checkout.Specification.Kind == model.WorkspaceKindManagedSlot && strings.TrimSpace(m.Checkout.Specification.Branch) == "" {
 		return fmt.Errorf("checkout branch is required")
-	}
-	if m.Checkout.Specification.Kind == model.WorkspaceKindRepositoryHome && m.Checkout.Specification.Branch != "" {
-		return fmt.Errorf("repository-home checkout must not specify a branch")
 	}
 	if claim := m.Checkout.Claim; claim != nil {
 		claim.ID = strings.TrimSpace(claim.ID)
@@ -345,34 +330,7 @@ func normalizeManifest(m *model.Manifest) error {
 			claim.RepositoryKey = model.RepositoryKey(m.Repository)
 		}
 	}
-	if m.Checkout.Specification.Kind == model.WorkspaceKindRepositoryHome && m.Checkout.Specification.Executor != model.ExecutorLocal {
-		return fmt.Errorf("repository-home checkout requires the local executor")
-	}
-	if m.Checkout.Specification.Kind == model.WorkspaceKindRepositoryHome && m.Repository.OperationalRoot() == "" {
-		return fmt.Errorf("repository-home checkout requires repository root")
-	}
 	return nil
-}
-
-// ClaimRepositoryHome atomically validates repository-home exclusivity and
-// persists the claim under the same global lock used by item creation.
-func (s *Store) ClaimRepositoryHome(ctx context.Context, manifest model.Manifest) (err error) {
-	if err := s.Ensure(); err != nil {
-		return err
-	}
-	claimLock, err := itemlock.Acquire(ctx, s.CreationLockPath())
-	if err != nil {
-		return err
-	}
-	defer func() {
-		if releaseErr := claimLock.Release(); err == nil && releaseErr != nil {
-			err = releaseErr
-		}
-	}()
-	if err := s.validateRepositoryHomeClaim(manifest); err != nil {
-		return err
-	}
-	return s.SaveManifest(ctx, manifest)
 }
 
 func (s *Store) SaveManifest(ctx context.Context, manifest model.Manifest) (err error) {

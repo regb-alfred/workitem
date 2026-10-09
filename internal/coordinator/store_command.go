@@ -159,6 +159,16 @@ func applyCanonicalStoreMutation(tx *bolt.Tx, command StoreCommand, payload json
 		if err != nil {
 			return "", nil, err
 		}
+		if err := validateRepositoryReference(tx, normalized); err != nil {
+			return "", nil, err
+		}
+		var previous model.Manifest
+		if err := json.Unmarshal(projection.Get([]byte(command.ItemID)), &previous); err != nil {
+			return "", nil, err
+		}
+		if previous.Repository.ID != "" && (previous.Repository.ID != normalized.Repository.ID || previous.Repository.CreatedFromCommit != normalized.Repository.CreatedFromCommit) {
+			return "", nil, errors.New("repository identity and created-from commit are immutable")
+		}
 		if normalized.ID != command.ItemID {
 			return "", nil, errors.New("manifest item id mismatch")
 		}

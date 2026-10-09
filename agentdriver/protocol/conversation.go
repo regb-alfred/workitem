@@ -32,16 +32,18 @@ type Response struct {
 }
 
 type ConversationRequest struct {
-	ID           string            `json:"id,omitempty"`
-	Conversation Conversation      `json:"conversation,omitempty"`
-	Path         string            `json:"path,omitempty"`
-	SourcePath   string            `json:"source_path,omitempty"`
-	TargetPath   string            `json:"target_path,omitempty"`
-	TargetCWD    string            `json:"target_cwd,omitempty"`
-	Now          time.Time         `json:"now,omitempty"`
-	StartLine    uint64            `json:"start_line,omitempty"`
-	LineNumbers  []uint64          `json:"line_numbers,omitempty"`
-	Lines        []json.RawMessage `json:"lines,omitempty"`
+	ID           string       `json:"id,omitempty"`
+	Conversation Conversation `json:"conversation,omitempty"`
+	Path         string       `json:"path,omitempty"`
+	SourcePath   string       `json:"source_path,omitempty"`
+	TargetPath   string       `json:"target_path,omitempty"`
+	TargetCWD    string       `json:"target_cwd,omitempty"`
+	Now          time.Time    `json:"now,omitempty"`
+	StartLine    uint64       `json:"start_line,omitempty"`
+	LineNumbers  []uint64     `json:"line_numbers,omitempty"`
+	// Native records are opaque bytes, including malformed JSONL lines. JSON
+	// encodes each line as base64 rather than parsing it as protocol content.
+	Lines [][]byte `json:"lines,omitempty"`
 }
 
 type ConversationResponse struct {

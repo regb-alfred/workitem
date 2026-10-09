@@ -7,22 +7,26 @@ Run `wi help <command>` or `wi <command> --help` for complete options, safety no
 
 ## Common recipes
 
+`wi new` requires `--title TEXT` and accepts no positional title. The slug is derived from that title unless `--slug` is supplied. Description and prompt content never supply a title.
+
+First [register a repository](../../concepts/repositories/). These recipes assume current Wi item context; outside an item, add `--repo NAME`.
+
 Capture detailed backlog work:
 
 ```bash
-wi new --desc-file task.md --label backend "Fix token refresh"
+wi new --desc-file task.md --label backend --title "Fix token refresh"
 ```
 
 Create and delegate a headless task:
 
 ```bash
-wi new --agent-mode headless --prompt "Run the audit and report findings." "Audit dependencies"
+wi new --desc-file audit.md --start --agent-mode headless --title "Audit dependencies"
 ```
 
 Select a named agent definition at creation:
 
 ```bash
-wi new --agent web-search --prompt "Research upstream reports." "Investigate rendering"
+wi new --agent web-search --desc-file task.md --start --prompt "Read wi show and research upstream reports." --title "Investigate rendering"
 ```
 
 Start existing backlog work interactively:
@@ -65,11 +69,20 @@ wi archive auth
 
 See [Troubleshooting](../troubleshooting/) when a protected cleanup or runtime operation refuses to proceed.
 
+## Repositories
+
+| Command | Purpose |
+| --- | --- |
+| `wi repo add NAME --from SOURCE [--branch BRANCH]` | Import an independent bare store and register its integration branch |
+| `wi repo list` | List names and integration branches; JSON includes IDs |
+| `wi repo show NAME` | Read registry metadata, store path, and integration commit |
+| `wi repo rename OLD NEW` | Change a unique name without moving resources |
+
 ## Durable items
 
 | Command | Purpose |
 | --- | --- |
-| `wi new` | Create backlog work or create and delegate with `--prompt` |
+| `wi new` | Create backlog work or create and delegate with `--start`; `--prompt` overrides only the startup message |
 | `wi show` | Read metadata and the durable description |
 | `wi events` | Read append-only item history |
 | `wi state show\|set` | Inspect or mutate lifecycle only |
@@ -83,7 +96,6 @@ See [Troubleshooting](../troubleshooting/) when a protected cleanup or runtime o
 | `wi workspace status` | Inspect checkout assignment and Git state |
 | `wi workspace ensure` | Materialize or reclaim a checkout |
 | `wi workspace release` | Release the item's checkout claim when safe |
-| `wi workspace relocate` | Use a repository checkout after its directory moved |
 
 ## Agents
 
@@ -116,7 +128,7 @@ See [Troubleshooting](../troubleshooting/) when a protected cleanup or runtime o
 
 | Command | Purpose |
 | --- | --- |
-| `wi start` | Activate backlog work, or create a minimal item with `--new` |
+| `wi start` | Activate an existing backlog item by active slug |
 | `wi resume` | Reactivate waiting work |
 | `wi shelve` | Clean up safely and return work to backlog |
 | `wi archive` | Clean up safely and retain inactive history |
@@ -131,7 +143,7 @@ wi list --archived --ids
 wi state set backlog --item <item-id>
 ```
 
-The state change assigns a fresh active slug but does not recreate workspace or agent resources. Use `wi start --item <item-id>` when you are ready to resume work.
+The state change assigns a fresh active slug but does not recreate workspace or agent resources. Use `wi show --item <item-id>` to read the fresh slug, then run `wi start <active-slug>` when you are ready to resume work.
 
 ## Daemon and diagnostics
 

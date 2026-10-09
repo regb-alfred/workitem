@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/regb/workitem/internal/agent"
+	"github.com/regb/workitem/internal/config"
 	"github.com/regb/workitem/internal/model"
 )
 
@@ -22,15 +23,22 @@ type NewAgentWorkItemResult struct {
 	Control AgentControlResult `json:"control"`
 }
 
-// NewAgentWorkItem creates a durable item, starts the selected runtime without
-// attaching the caller, and submits the same self-contained description as its
-// initial request. Creation and startup are durable partial outcomes if a later
-// stage fails.
-func (a *App) NewAgentWorkItem(ctx context.Context, opts NewWorkItemOptions, mode agent.Mode, actor string) (NewAgentWorkItemResult, error) {
-	prompt := strings.TrimSpace(opts.Description)
-	if prompt == "" {
-		return NewAgentWorkItemResult{}, fmt.Errorf("agent prompt is required")
+// AgentStartupMessage selects an explicit override, global configuration, or
+// the built-in initial message. Task descriptions are never used as messages.
+func (a *App) AgentStartupMessage(override string) string {
+	if message := strings.TrimSpace(override); message != "" {
+		return message
 	}
+	if message := strings.TrimSpace(a.AgentConfig.StartupMessage); message != "" {
+		return message
+	}
+	return config.DefaultStartupMessage
+}
+
+// NewAgentWorkItem creates a durable item, starts a runtime without attaching,
+// and submits a separate startup message. Later failures retain partial outcomes.
+func (a *App) NewAgentWorkItem(ctx context.Context, opts NewWorkItemOptions, mode agent.Mode, message, actor string) (NewAgentWorkItemResult, error) {
+	prompt := a.AgentStartupMessage(message)
 	if mode == "" {
 		mode = agent.ModeTUI
 	}

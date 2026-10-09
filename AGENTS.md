@@ -5,7 +5,7 @@
 - A work item is the canonical durable aggregate: identity, description, lifecycle, labels, deep-work classification, checkout specification, conversation identity, and append-only history.
 - Lifecycle states are `backlog`, `working`, `waiting`, and `archived`.
 - A workspace is a Git checkout claim/materialization, not a tmux session or coding-agent process.
-- Checkout kinds are reusable `managed-slot` worktrees and exclusive borrowed `repository-home` claims.
+- Items use reusable `managed-slot` worktrees from registered independent bare Git stores. Repository-home checkout claims and repository relocation are not supported.
 - Each item has at most one durable primary agent conversation, created when agent work starts, and at most one active runtime owner.
 - TUI runtimes use tmux; headless runtimes must remain tmux-independent.
 - Agent status (`busy`, `idle`, `problem`) and worktree status (`absent`, `clean`, `changed`, `problem`) are separate observations.
@@ -14,14 +14,14 @@
 ## Glossary
 
 - `work item`: The stable durable aggregate. It owns identity, description, lifecycle, labels, deep-work classification, source context, checkout specification and claim state, primary conversation identity, and append-only history. It may exist without a materialized workspace, live runtime, or terminal.
-- `source context`: The repository identity and created-from commit recorded when the item is created. In the current schema this includes the repository root at creation, Git common directory, sanitized origin URL, and `created_from_commit`. It remains useful provenance after refs and the implementation branch advance.
-- `checkout specification`: The durable instructions and current claim for materializing work: checkout kind, implementation branch, and assigned path when present. The immutable created-from commit belongs to source context, not checkout state.
-- `checkout kind`: The workspace policy. `managed-slot` uses a reusable wi-owned worktree slot. `repository-home` borrows the repository's primary checkout through an exclusive logical claim and never makes that external checkout wi-owned.
+- `source context`: The registered repository ID and immutable `created_from_commit` recorded at creation. Repository names, integration policy, origin, and derived operational paths are resolved from the registry, not copied into item records.
+- `checkout specification`: Durable materialization instructions, including checkout kind and implementation branch. The nullable claim separately owns the assigned path, identity, and generation. The immutable created-from commit belongs to source context, not checkout state.
+- `checkout kind`: The workspace policy. Items use `managed-slot`, a reusable Wi-owned worktree slot. Offline migration tooling recognizes historical `repository-home` records.
 - `workspace`: The logical Git checkout claim and its materialization for one item. A workspace is not a directory alone, a tmux session, or a coding-agent process.
-- `materialization`: Creation or attachment of external resources described by durable state, such as assigning a managed slot, checking out the implementation branch, or recognizing a claimed repository home.
+- `materialization`: Creation or attachment of external resources described by durable state, such as assigning a managed slot and checking out the persistent implementation branch.
 - `worktree`: A concrete Git working tree observed by wi. Managed worktrees may remain as warm reusable slot directories after an item releases its workspace claim.
 - `managed slot`: A wi-owned reusable worktree location. Slots are claimed by items, reset and validated before reuse, and retained to preserve build caches.
-- `repository-home claim`: An exclusive logical claim on the repository's primary checkout. Releasing or deleting the item relinquishes the claim but does not modify or delete that checkout.
+- `registered repository`: A stable ID, unique mutable name, integration branch, optional sanitized origin, and independent bare store under the data root. Names can change without moving resources. External onboarding checkouts are not operational dependencies.
 - `lifecycle`: The durable work-item state: `backlog`, `working`, `waiting`, or `archived`. Lifecycle does not by itself describe whether a workspace, runtime, or terminal currently exists.
 - `deep work`: A durable item classification subject to configured active-capacity policy. It is not a label.
 - `primary conversation`: The item's durable driver-owned conversation identity and native history. It is created when agent work first starts and survives runtime restarts. An item has at most one primary conversation.
@@ -55,7 +55,9 @@
 - `internal/cli/`: command parsing, help, text/JSON output, and exit-code mapping.
 - `internal/app/app.go`: application service composition.
 - `internal/app/core/item/`: durable item lifecycle and metadata.
-- `internal/app/core/workspace/`: checkout slots, repository-home claims, ensure/release policy.
+- `internal/app/core/workspace/`: checkout slots, claim fencing, and ensure/release policy.
+- `internal/coordinator/repository*.go`: repository registry, source resolution, onboarding validation, and renaming.
+- `internal/migraterepositories/`: explicit offline schema 4-to-5 conversion tooling.
 - `internal/app/core/primaryagent/`: conversation, runtime ownership, observation, and control.
 - `internal/app/core/attention/`: activity facts and attention policy.
 - `internal/app/view/`: list/read projections.
@@ -69,6 +71,15 @@
 - `internal/agent/`: driver-neutral runtime protocol.
 - `internal/agentdriver/`: driver process host and clients; bundled driver implementations live in child packages such as `internal/agentdriver/pi/`.
 - `internal/git/`, `internal/tmux/`, `internal/direnv/`, `internal/process/`: external-system adapters.
+
+## Documentation map
+
+- `docs/src/content/docs/`: published user contracts and workflows. Repositories, delegation, configuration, and tmux each own their detailed recipes.
+- `docs/internal/`: historical migration and implementation notes, not public command recipes.
+- `skills/wi/SKILL.md`: constrained agent operations; retain user edits while keeping command examples aligned.
+- `README.md`: overview and short onboarding path; link to the published docs instead of duplicating bindings.
+
+`wi new` requires explicit `--title`, derives only a missing slug, and never infers a title from description or prompt. Descriptions are durable task content; startup messages are separate. `--start` sends the global `[agent].startup_message`, `--prompt` overrides only that message, and resume never sends a prompt. Contextual base expressions must fail closed outside the current claimed checkout.
 
 ## Architectural constraints
 
@@ -117,7 +128,8 @@ Documentation-only and test-only changes do not require reinstalling the binary.
 ## Testing notes
 
 - The full suite should run without requiring a live tmux server or coding-agent process.
-- CLI integration tests should isolate HOME and XDG roots.
+- Process-launching test packages use `testutil.RunIsolatedTests` in `TestMain` to isolate HOME, XDG roots, Pi configuration, Git overrides, and Wi/tmux/direnv context. Preserve this guard when adding tests. Go compiler/module caches may be shared; binary installation destinations must remain private.
+- CLI subprocess tests must also use explicit isolated environments. Manual development-binary/browser smoke tests need their own HOME and XDG roots; do not run older binaries against the operator's live daemon.
 - Test both TUI and headless composition when changing runtime startup or lifecycle behavior.
 - Preserve stable JSON shapes and documented exit-code distinctions for CLI changes.
 - For persistence changes, test malformed input, interrupted/rebuildable state, locking, and path-escape safety where relevant.

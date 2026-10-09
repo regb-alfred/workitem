@@ -20,19 +20,21 @@ Workspaces, agent processes, and tmux sessions can disappear and be rebuilt. The
 ## Creation does not imply execution
 
 ```bash
-wi new --desc-file task.md "Investigate cache invalidation"
+wi new --desc-file task.md --title "Investigate cache invalidation"
 ```
+
+`--title` is required; positional titles are rejected. A missing slug is derived from that title. Wi never infers a title from a slug, description, or prompt. Creation selects a [registered repository](../repositories/) implicitly from the current item, or explicitly with `--repo NAME`.
 
 Ordinary creation records backlog work only. This separation makes capturing an idea cheap and safe. It also preserves a deliberate partial result if later startup fails.
 
 To create and delegate in one command:
 
 ```bash
-wi new --prompt "Find the race, add a regression test, and report the cause." \
-  "Investigate cache race"
+wi new --desc-file task.md --start \
+  --title "Investigate cache race"
 ```
 
-This stores the prompt as the description, changes the item to `working`, starts an unattached runtime, and sends the prompt through the selected agent driver.
+This stores the file as the description, changes the item to `working`, starts an unattached runtime, and sends the configured startup message through the selected agent driver. Descriptions are durable specifications; prompts are conversation messages. Resume never sends a message. See [Delegate work](../../guides/delegation/) for overrides and prompt-only questions.
 
 ## Descriptions are handoffs
 

@@ -11,11 +11,11 @@ Install these programs before building `wi`:
 
 - [Go](https://go.dev/doc/install) 1.24 or newer
 - [Git](https://git-scm.com/)
-- [Pi](https://github.com/badlogic/pi-mono)
+- [Pi](https://pi.dev)
 - [tmux](https://github.com/tmux/tmux) for interactive TUI mode
 - [fzf](https://github.com/junegunn/fzf) for the optional `wi switch` picker
 
-Headless agents do not require tmux or fzf. Pi must be installed and configured for the model provider you intend to use.
+Headless agents do not require tmux or fzf. Pi must be installed and configured for the model provider you intend to use. The Wi skill is embedded in the Wi executable. At runtime startup, the Pi driver exports a private temporary copy and passes it explicitly with `--skill`; do not add a separate copy to Pi configuration. Global skills and settings are not modified.
 
 Check the prerequisites available for your workflow:
 
@@ -45,7 +45,7 @@ wi version
 wi info
 ```
 
-Development versions include the Git revision and report a dirty checkout. This identifies the code behind a local installation without a manual development version number.
+When Go supplies VCS metadata, development versions include the Git revision and dirty-checkout status. Managed-worktree builds may instead report `devel` without a revision. This identifies the code behind a local installation without a manual development version number.
 
 The daemon starts automatically when an ordinary command needs it. You do not need to start tmux before running `wi`; TUI operations create or reuse the required server and sessions.
 

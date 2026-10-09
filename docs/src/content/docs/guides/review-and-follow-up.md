@@ -81,10 +81,10 @@ A stopped runtime does not erase the conversation. You can stop a settled agent 
 ```bash
 wi agent runtime stop add-api-retries
 wi agent runtime status add-api-retries
-wi resume add-api-retries
+wi switch add-api-retries
 ```
 
-`resume` is for waiting items. Use `start` for backlog items and `switch` to re-enter an already working TUI item.
+`resume` is normally used for waiting items and never submits a new prompt. Use `start` for backlog items and `switch` to re-enter an already working TUI item.
 
 ## Integrate only after verification
 

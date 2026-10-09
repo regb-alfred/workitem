@@ -16,17 +16,23 @@ import (
 const (
 	DefaultMaxDeepWorkActive = 2
 	DefaultRepositoryFolders = 2
+	DefaultStartupMessage    = "Read this work item's description with `wi show`. Work on the task it describes. Run relevant checks and report the outcome."
 )
 
 type Config struct {
 	DeepWork    DeepWorkConfig                    `json:"deep_work"`
 	Item        ItemConfig                        `json:"item"`
 	List        ListConfig                        `json:"list"`
+	Agent       AgentConfig                       `json:"agent"`
 	AgentStatus AgentStatusConfig                 `json:"agent_status"`
 	Attention   AttentionConfig                   `json:"attention"`
 	Direnv      DirenvConfig                      `json:"direnv"`
 	Agents      map[string]AgentDefinitionConfig  `json:"agents"`
 	Drivers     map[string]DriverDefinitionConfig `json:"drivers"`
+}
+
+type AgentConfig struct {
+	StartupMessage string `json:"startup_message"`
 }
 
 type AgentDefinitionConfig struct {
@@ -81,7 +87,7 @@ type DirenvConfig struct {
 }
 
 func Default() Config {
-	return Config{DeepWork: DeepWorkConfig{MaxActive: DefaultMaxDeepWorkActive}, List: ListConfig{RepositoryFolders: DefaultRepositoryFolders}, Attention: AttentionConfig{Priority: priority.DefaultStrategy}, Agents: map[string]AgentDefinitionConfig{"default": {Driver: "pi", Config: map[string]any{}}}, Drivers: map[string]DriverDefinitionConfig{"pi": {Defaults: map[string]any{}}}}
+	return Config{Agent: AgentConfig{StartupMessage: DefaultStartupMessage}, DeepWork: DeepWorkConfig{MaxActive: DefaultMaxDeepWorkActive}, List: ListConfig{RepositoryFolders: DefaultRepositoryFolders}, Attention: AttentionConfig{Priority: priority.DefaultStrategy}, Agents: map[string]AgentDefinitionConfig{"default": {Driver: "pi", Config: map[string]any{}}}, Drivers: map[string]DriverDefinitionConfig{"pi": {Defaults: map[string]any{}}}}
 }
 
 func Load(path string) (Config, []string, error) {
@@ -150,6 +156,12 @@ func Load(path string) (Config, []string, error) {
 				return cfg, warnings, fmt.Errorf("parse list.labels on line %d: %w", lineNo, err)
 			}
 			cfg.List.Labels = parsed
+		case "agent.startup_message":
+			parsed, err := strconv.Unquote(value)
+			if err != nil {
+				return cfg, warnings, fmt.Errorf("parse agent.startup_message on line %d: %w", lineNo, err)
+			}
+			cfg.Agent.StartupMessage = parsed
 		case "attention.priority":
 			cfg.Attention.Priority = parseStringValue(value)
 		case "agent_status.markers.busy":
@@ -175,6 +187,9 @@ func Load(path string) (Config, []string, error) {
 }
 
 func Validate(cfg Config) error {
+	if strings.TrimSpace(cfg.Agent.StartupMessage) == "" {
+		return fmt.Errorf("agent.startup_message must not be empty")
+	}
 	if cfg.DeepWork.MaxActive < 0 {
 		return fmt.Errorf("deep_work.max_active must be nonnegative")
 	}

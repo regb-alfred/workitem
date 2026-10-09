@@ -16,6 +16,7 @@ A work item is the durable center of the workflow. Git worktrees, coding-agent r
 | Part | What it represents |
 | --- | --- |
 | Work item | Durable task identity, description, state, labels, and history |
+| Repository | Named independent bare Git store and integration policy |
 | Workspace | An isolated Git checkout assigned to the item |
 | Agent | The selected configured agent definition and its driver |
 | Conversation | The item's persistent driver-owned primary conversation |
@@ -26,11 +27,11 @@ Read [Work items](concepts/work-items/) and [Lifecycle](concepts/lifecycle/) for
 
 ## A common workflow
 
-Create and delegate a task:
+Register the repository, then create and delegate a task:
 
 ```bash
-wi new --prompt "Add bounded request retries, test them, and report the result." \
-  "Add request retries"
+wi repo add project --from /path/to/repository --branch main
+wi new --title "Add request retries" --repo project --desc-file task.md --start
 ```
 
 Check active work and enter the agent session:
@@ -47,10 +48,11 @@ wi merge --item add-request-retries main
 wi archive add-request-retries
 ```
 
-`--prompt` stores and submits the initial task. If you create backlog work with `--desc-file`, `wi start` opens the runtime but does not submit the description. The [quick start](getting-started/quick-start/) demonstrates both forms.
+`--start` submits a configurable message asking the agent to read the task using `wi show`. `--prompt` overrides only that message, not the description. If you create backlog work with `--desc-file`, `wi start` opens the runtime but does not submit the description. The [quick start](getting-started/quick-start/) demonstrates both forms.
 
 ## Continue by task
 
+- [Repositories](concepts/repositories/) covers onboarding, starting commits, and renaming.
 - [Everyday workflow](guides/everyday-workflow/) covers capture, supervision, integration, and cleanup.
 - [Delegate work](guides/delegation/) covers background TUI and headless agents.
 - [Review agent work](guides/review-and-follow-up/) covers diffs, tests, and corrections.

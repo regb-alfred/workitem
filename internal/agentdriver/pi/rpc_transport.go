@@ -258,7 +258,7 @@ func (t *nativeRPCTransport) queueLiveEvent(event agent.RuntimeEvent, ack chan s
 		return false
 	}
 	t.ensureRuntimeEventID(&event)
-	semantic := driverprotocol.RuntimeEvent{ProtocolVersion: driverprotocol.Version, EventID: event.EventID, RuntimeID: t.spec.RuntimeID, WorkItemID: t.spec.WorkItemID, Type: event.Type, Timestamp: event.Timestamp, CommandID: event.CommandID, RequestID: event.RequestID, Role: event.Role, ToolName: event.ToolName, Failed: event.Type == agent.EventRuntimeFailed || event.Type == agent.EventCommandRejected}
+	semantic := driverprotocol.RuntimeEvent{ProtocolVersion: driverprotocol.RuntimeVersion, EventID: event.EventID, RuntimeID: t.spec.RuntimeID, WorkItemID: t.spec.WorkItemID, Type: event.Type, Timestamp: event.Timestamp, CommandID: event.CommandID, RequestID: event.RequestID, Role: event.Role, ToolName: event.ToolName, Failed: event.Type == agent.EventRuntimeFailed || event.Type == agent.EventCommandRejected}
 	select {
 	case t.liveQueue <- queuedLiveEvent{event: semantic, ack: ack}:
 		return true

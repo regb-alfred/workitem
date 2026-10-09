@@ -18,25 +18,29 @@ import (
 func runNew(ctx context.Context, args []string, cfg Config, jsonOut bool) error {
 	fs := newFlagSet("new", cfg.Stderr)
 	var labels repeatFlag
-	var descFile, prompt, slug, base, repoPath, agentMode, agentName string
-	var deep, home, noDefaultLabels bool
+	var title, descFile, prompt, slug, base, repoPath, agentMode, agentName string
+	var deep, noDefaultLabels, start bool
+	fs.StringVar(&title, "title", "", "required work-item title; slug is derived unless --slug is supplied")
 	fs.StringVar(&descFile, "desc-file", "", "read work-item description from file")
-	fs.StringVar(&prompt, "prompt", "", "use this description and start an agent immediately without attaching")
-	fs.StringVar(&agentMode, "agent-mode", "tui", "with --prompt, runtime mode: tui or headless")
+	fs.BoolVar(&start, "start", false, "start an agent immediately without attaching and send the startup message")
+	fs.StringVar(&prompt, "prompt", "", "with --start, override the startup message without changing the description")
+	fs.StringVar(&agentMode, "agent-mode", "tui", "with --start, runtime mode: tui or headless")
 	fs.StringVar(&agentName, "agent", "default", "configured agent definition")
 	fs.StringVar(&slug, "slug", "", "explicit active slug for the new work item")
 	fs.Var(&labels, "label", "label to add (repeatable)")
 	fs.BoolVar(&noDefaultLabels, "no-default-labels", false, "do not inherit user or repository default labels")
 	fs.BoolVar(&deep, "deep", false, "mark as deep work")
-	fs.BoolVar(&home, "home", false, "borrow the repository's primary default-branch checkout")
-	fs.StringVar(&base, "base", "", "base revision")
-	fs.StringVar(&repoPath, "repo", "", "repository path for the new work item (default: current directory)")
+	fs.StringVar(&base, "base", "", "branch, tag, or commit; ^ selects integration, HEAD/@/- use the current worktree")
+	fs.StringVar(&repoPath, "repo", "", "registered repository name (default: current work item's repository)")
 	if err := fs.Parse(args); err != nil {
 		return usageErr{err}
 	}
-	title := strings.TrimSpace(strings.Join(fs.Args(), " "))
+	if fs.NArg() != 0 {
+		return usageErr{errors.New("wi new does not accept positional arguments; use --title TEXT")}
+	}
+	title = strings.TrimSpace(title)
 	if title == "" {
-		return usageErr{errors.New("usage: wi new [options] <title>")}
+		return usageErr{errors.New("wi new requires a non-empty --title")}
 	}
 	promptSet, agentModeSet := false, false
 	fs.Visit(func(f *flag.Flag) {
@@ -47,30 +51,27 @@ func runNew(ctx context.Context, args []string, cfg Config, jsonOut bool) error 
 			agentModeSet = true
 		}
 	})
-	if promptSet && strings.TrimSpace(descFile) != "" {
-		return usageErr{errors.New("pass either --prompt or --desc-file, not both")}
+	if promptSet && !start {
+		return usageErr{errors.New("--prompt requires --start")}
 	}
-	if agentModeSet && !promptSet {
-		return usageErr{errors.New("--agent-mode requires --prompt")}
+	if agentModeSet && !start {
+		return usageErr{errors.New("--agent-mode requires --start")}
+	}
+	if promptSet && strings.TrimSpace(prompt) == "" {
+		return usageErr{errors.New("--prompt requires a non-empty message")}
+	}
+	mode, err := agent.ParseMode(agentMode)
+	if err != nil {
+		return usageErr{err}
 	}
 	if cfg.ControlAccess == coordinator.AccessAgent {
-		if promptSet {
-			return errors.New("agent endpoint may create backlog items only; --prompt is not allowed")
-		}
-		if home {
-			return errors.New("agent endpoint may create managed-slot items only; --home is not allowed")
+		if start {
+			return errors.New("agent endpoint may create backlog items only; --start is not allowed")
 		}
 	}
-	description := strings.TrimSpace(prompt)
-	if promptSet && description == "" {
-		return usageErr{errors.New("--prompt requires a non-empty description")}
-	}
-	if !promptSet {
-		var err error
-		description, err = readDescriptionFileFlag(cfg, descFile)
-		if err != nil {
-			return err
-		}
+	description, err := readDescriptionFileFlag(cfg, descFile)
+	if err != nil {
+		return err
 	}
 	newCWD := cfg.CWD
 	if strings.TrimSpace(repoPath) != "" {
@@ -81,14 +82,37 @@ func runNew(ctx context.Context, args []string, cfg Config, jsonOut bool) error 
 	}
 	opts := app.NewWorkItemOptions{
 		Title: title, Slug: slug, Description: description, Labels: labels,
-		NoDefaultLabels: noDefaultLabels, DeepWork: deep, Base: base, Home: home, CWD: newCWD, Env: cfg.Env, Agent: agentName,
+		NoDefaultLabels: noDefaultLabels, DeepWork: deep, Base: base, CWD: newCWD, Env: cfg.Env, Agent: agentName,
 	}
-	if promptSet {
-		mode, err := agent.ParseMode(agentMode)
-		if err != nil {
-			return usageErr{err}
+	if cfg.RequireOwnedRepository {
+		selector := strings.TrimSpace(repoPath)
+		var current *model.Manifest
+		if item, err := cfg.App.ResolveItem(ctx, app.ResolveOptions{CWD: cfg.CWD, Env: cfg.Env}); err == nil {
+			current = &item
 		}
-		res, err := runCoordinatorNewAgent(ctx, cfg, opts, mode)
+		if selector == "" {
+			if current == nil || current.Repository.ID == "" {
+				return usageErr{errors.New("select a registered repository with --repo NAME; use wi repo add NAME --from SOURCE to onboard one")}
+			}
+			selector = current.Repository.ID
+		}
+		var metadata coordinator.RepositorySourceResult
+		if err := cfg.Coordinator.Call(ctx, coordinator.MethodRepositorySource, coordinator.RepositorySourceRequest{Selector: selector, MetadataOnly: true}, &metadata); err != nil {
+			return err
+		}
+		revision, err := resolveRepositoryBase(ctx, base, cfg.CWD, current, metadata, cfg.App.Git)
+		if err != nil {
+			return err
+		}
+		var source coordinator.RepositorySourceResult
+		if err := cfg.Coordinator.Call(ctx, coordinator.MethodRepositorySource, coordinator.RepositorySourceRequest{Selector: metadata.Repository.ID, Revision: revision, SkipLabels: noDefaultLabels}, &source); err != nil {
+			return err
+		}
+		opts.RepositoryLabels = source.Labels
+		opts.Repository = &model.Repository{ID: source.Repository.ID, Name: source.Repository.Name, IntegrationBranch: source.Repository.IntegrationBranch, RootAtCreation: source.GitDir, GitCommonDir: source.GitDir, RemoteURL: source.Repository.OriginURL, CreatedFromCommit: source.Commit}
+	}
+	if start {
+		res, err := runCoordinatorNewAgent(ctx, cfg, opts, mode, cfg.App.AgentStartupMessage(prompt))
 		if err != nil {
 			return err
 		}
@@ -119,7 +143,7 @@ func runNew(ctx context.Context, args []string, cfg Config, jsonOut bool) error 
 	return nil
 }
 
-func runCoordinatorNewAgent(ctx context.Context, cfg Config, opts app.NewWorkItemOptions, mode agent.Mode) (app.NewAgentWorkItemResult, error) {
+func runCoordinatorNewAgent(ctx context.Context, cfg Config, opts app.NewWorkItemOptions, mode agent.Mode, message string) (app.NewAgentWorkItemResult, error) {
 	created, err := createCoordinatorWorkItem(ctx, cfg, opts)
 	if err != nil {
 		return app.NewAgentWorkItemResult{}, err
@@ -138,7 +162,7 @@ func runCoordinatorNewAgent(ctx context.Context, cfg Config, opts app.NewWorkIte
 	if err := cfg.App.WaitForAgentRuntimeReady(ctx, created.Manifest.ID, started.Workspace.AgentRuntime); err != nil {
 		return result, fmt.Errorf("created and started work item %s (%s), but could not submit its prompt: %w", created.Manifest.Slug, created.Manifest.ID, err)
 	}
-	controlled, err := cfg.App.AgentControl(ctx, app.AgentControlOptions{ResolveOptions: resolve, CommandType: agent.CommandPrompt, Message: strings.TrimSpace(opts.Description), Actor: "operator"})
+	controlled, err := cfg.App.AgentControl(ctx, app.AgentControlOptions{ResolveOptions: resolve, CommandType: agent.CommandPrompt, Message: message, Actor: "operator"})
 	result.Control = controlled
 	if err != nil {
 		return result, fmt.Errorf("created and started work item %s (%s), but could not submit its prompt: %w", created.Manifest.Slug, created.Manifest.ID, err)

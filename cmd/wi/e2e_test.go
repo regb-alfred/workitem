@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"debug/buildinfo"
 	"encoding/json"
 	"os"
 	"os/exec"
@@ -82,7 +83,19 @@ func TestCLIStateAndAttentionEndToEnd(t *testing.T) {
 		GoVersion string `json:"go_version"`
 	}
 	decodeE2EJSON(t, versionJSON, &version)
-	if version.Version == "" || version.Revision == "" || version.GoVersion == "" {
+	// Go may omit VCS metadata for source archives or linked worktrees. The
+	// CLI must report the revision actually embedded, including its absence.
+	embedded, err := buildinfo.ReadFile(binary)
+	if err != nil {
+		t.Fatal(err)
+	}
+	revision := ""
+	for _, setting := range embedded.Settings {
+		if setting.Key == "vcs.revision" {
+			revision = setting.Value
+		}
+	}
+	if version.Version == "" || version.Revision != revision || version.GoVersion == "" {
 		t.Fatalf("real binary version = %+v", version)
 	}
 	var released struct {
@@ -91,11 +104,12 @@ func TestCLIStateAndAttentionEndToEnd(t *testing.T) {
 		Revision string `json:"revision"`
 	}
 	decodeE2EJSON(t, runWiE2E(t, releaseBinary, repository, env, "version", "--json"), &released)
-	if released.Version != "v0.0.0-test" || released.Release != "v0.0.0-test" || released.Revision == "" {
+	if released.Version != "v0.0.0-test" || released.Release != "v0.0.0-test" || released.Revision != revision {
 		t.Fatalf("release binary version = %+v", released)
 	}
 
-	createdJSON := runWiE2E(t, binary, repository, env, "new", "--json", "State and attention E2E")
+	runWiE2E(t, binary, repository, env, "repo", "add", "test", "--from", repository)
+	createdJSON := runWiE2E(t, binary, repository, env, "new", "--repo", "test", "--json", "--title", "State and attention E2E")
 	var created struct {
 		WorkItemID string `json:"work_item_id"`
 		State      string `json:"state"`
@@ -117,7 +131,7 @@ func TestCLIStateAndAttentionEndToEnd(t *testing.T) {
 	operatorAsAgentEnv := append(append([]string{}, env...), "WI_AGENT_DAEMON_SOCKET="+daemonStatus.SocketPath)
 	assertWiE2EFails(t, binary, repository, operatorAsAgentEnv, "list")
 	agentEnv := append(append([]string{}, env...), "WI_AGENT_DAEMON_SOCKET="+daemonStatus.AgentSocketPath)
-	agentCreatedJSON := runWiE2E(t, binary, repository, agentEnv, "new", "--json", "Agent filed backlog item")
+	agentCreatedJSON := runWiE2E(t, binary, repository, agentEnv, "new", "--repo", "test", "--json", "--title", "Agent filed backlog item")
 	var agentCreated struct {
 		WorkItemID string `json:"work_item_id"`
 		State      string `json:"state"`
@@ -127,7 +141,7 @@ func TestCLIStateAndAttentionEndToEnd(t *testing.T) {
 		t.Fatalf("agent new result = %+v", agentCreated)
 	}
 	assertWiE2EFails(t, binary, repository, agentEnv, "state", "set", "working", "--item", agentCreated.WorkItemID)
-	assertWiE2EFails(t, binary, repository, agentEnv, "new", "--prompt", "start this", "Agent cannot start work")
+	assertWiE2EFails(t, binary, repository, agentEnv, "new", "--start", "--title", "Agent cannot start work")
 	assertE2EState(t, binary, repository, env, agentCreated.WorkItemID, "backlog")
 
 	assertE2EState(t, binary, repository, env, created.WorkItemID, "backlog")
@@ -209,6 +223,29 @@ func TestCLIStateAndAttentionEndToEnd(t *testing.T) {
 	setState("archived")
 	setState("backlog")
 	assertE2EState(t, binary, repository, env, created.WorkItemID, "backlog")
+
+	// Opting out of defaults must not parse broken declarative project labels,
+	// including during the daemon\'s independent created-from pin verification.
+	if err := os.MkdirAll(filepath.Join(repository, ".config"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repository, ".config", "wi.toml"), []byte("[item.defaults]\nlabels = [invalid]\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	runGitE2E(t, repository, "add", ".config/wi.toml")
+	runGitE2E(t, repository, "commit", "-q", "-m", "broken project defaults")
+	runWiE2E(t, binary, repository, env, "repo", "add", "invalid-project", "--from", repository)
+	assertWiE2EFails(t, binary, repository, env, "new", "--repo", "invalid-project", "--title", "Cannot inherit invalid defaults")
+	withoutDefaults := runWiE2E(t, binary, repository, env, "new", "--repo", "invalid-project", "--title", "Skip invalid defaults", "--no-default-labels", "--label", "explicit", "--json")
+	var optedOut struct {
+		Manifest struct {
+			Labels []string `json:"labels"`
+		} `json:"manifest"`
+	}
+	decodeE2EJSON(t, withoutDefaults, &optedOut)
+	if len(optedOut.Manifest.Labels) != 1 || optedOut.Manifest.Labels[0] != "explicit" {
+		t.Fatalf("opted-out labels = %v", optedOut.Manifest.Labels)
+	}
 
 	entries, err := os.ReadDir(filepath.Join(dataHome, "wi", "worktrees"))
 	if err != nil && !os.IsNotExist(err) {
@@ -292,13 +329,10 @@ func isolatedE2EEnv(overrides map[string]string) []string {
 	for key := range overrides {
 		replaced[key] = true
 	}
-	for _, key := range []string{"WI_ID", "WI_DIR", "WI_REPOSITORY", "WI_WORKTREE", "WI_DAEMON_SOCKET", "WI_AGENT_DAEMON_SOCKET", "TMUX", "TMUX_PANE", "PI_CODING_AGENT_SESSION_DIR"} {
-		replaced[key] = true
-	}
 	env := []string{}
 	for _, entry := range os.Environ() {
 		key, _, _ := strings.Cut(entry, "=")
-		if !replaced[key] {
+		if !replaced[key] && !strings.HasPrefix(key, "WI_") && !strings.HasPrefix(key, "PI_") && !strings.HasPrefix(key, "DIRENV_") && key != "TMUX" && key != "TMUX_PANE" {
 			env = append(env, entry)
 		}
 	}

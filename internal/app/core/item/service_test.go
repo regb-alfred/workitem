@@ -44,7 +44,6 @@ func TestExplicitSlugRejectsActiveCollision(t *testing.T) {
 
 type creationGit struct {
 	root              string
-	home              model.RepositoryHomeInfo
 	branchExists      bool
 	defaultBranch     string
 	defaultBranchErr  error
@@ -61,12 +60,6 @@ func (g creationGit) DetectRepository(_ context.Context, _ string, revision stri
 		commit = value
 	}
 	return model.RepositoryInfo{Repository: model.Repository{RootAtCreation: g.root, GitCommonDir: filepath.Join(g.root, ".git"), CreatedFromCommit: commit}, Commit: commit}, nil
-}
-func (g creationGit) RepositoryHome(context.Context, string) (model.RepositoryHomeInfo, error) {
-	if g.home.Path != "" || g.home.Bare || g.home.Detached {
-		return g.home, nil
-	}
-	return model.RepositoryHomeInfo{Path: g.root, Branch: g.defaultBranch}, nil
 }
 func (g creationGit) DefaultBranch(context.Context, string) (string, error) {
 	if g.defaultBranchErr != nil {
@@ -119,60 +112,6 @@ func TestNewWorkItemFallsBackToCurrentHeadWhenDefaultUnknown(t *testing.T) {
 	}
 	if created.Manifest.Repository.CreatedFromCommit != "current-head" || len(created.Warnings) != 1 || !strings.Contains(created.Warnings[0], "based new item on current HEAD") {
 		t.Fatalf("created=%+v", created)
-	}
-}
-
-func TestNewHomeWorkItemBindsPrimaryDefaultCheckout(t *testing.T) {
-	st := store.New(t.TempDir())
-	root := t.TempDir()
-	git := creationGit{root: root, defaultBranch: "main", revisions: map[string]string{"main": "main-head"}}
-	service := New(st, git, func(context.Context, contract.ResolveOptions) (model.Manifest, error) { return model.Manifest{}, nil }, testutil.Time, func() (string, error) { return testutil.ID(t, 11), nil }, nil, nil)
-	created, err := service.NewWorkItem(context.Background(), NewOptions{Title: "Mainline", Home: true, CWD: root})
-	if err != nil {
-		t.Fatal(err)
-	}
-	checkout := created.Manifest.Checkout
-	if checkout.Specification.Kind != model.WorkspaceKindRepositoryHome || !checkout.Present() || checkout.Claim == nil || checkout.Claim.Path != root || checkout.Specification.Branch != "" || created.Manifest.Repository.CreatedFromCommit != "main-head" {
-		t.Fatalf("checkout=%+v", checkout)
-	}
-}
-
-func TestNewHomeWorkItemRequiresPrimaryDefaultCheckout(t *testing.T) {
-	root := t.TempDir()
-	for _, tc := range []struct {
-		name string
-		home model.RepositoryHomeInfo
-		want string
-	}{
-		{"bare", model.RepositoryHomeInfo{Bare: true}, "no primary working checkout"},
-		{"detached", model.RepositoryHomeInfo{Path: root, Detached: true}, "is detached"},
-		{"wrong branch", model.RepositoryHomeInfo{Path: root, Branch: "feature"}, "expected local default branch main"},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			st := store.New(t.TempDir())
-			git := creationGit{root: "/repo", home: tc.home, defaultBranch: "main", revisions: map[string]string{"main": "main-head"}}
-			service := New(st, git, func(context.Context, contract.ResolveOptions) (model.Manifest, error) { return model.Manifest{}, nil }, testutil.Time, func() (string, error) { return testutil.ID(t, 12), nil }, nil, nil)
-			_, err := service.NewWorkItem(context.Background(), NewOptions{Title: "Mainline", Home: true, CWD: t.TempDir()})
-			if err == nil || !strings.Contains(err.Error(), tc.want) {
-				t.Fatalf("err=%v, want %q", err, tc.want)
-			}
-		})
-	}
-}
-
-func TestNewHomeWorkItemRejectsExistingClaim(t *testing.T) {
-	st := store.New(t.TempDir())
-	root := t.TempDir()
-	now := testutil.Time()
-	path := root
-	existing := model.NewManifest(testutil.ID(t, 13), "existing", "Existing", nil, false, now, model.Repository{RootAtCreation: root, GitCommonDir: filepath.Join(root, ".git")}, model.Checkout{Specification: model.CheckoutSpecification{Kind: model.WorkspaceKindRepositoryHome, Branch: "main"}, ClaimGeneration: 1, Claim: &model.WorkspaceClaim{ID: "test-claim", Generation: 1, Executor: model.ExecutorLocal, Path: path}})
-	if err := st.CreateItem(context.Background(), existing); err != nil {
-		t.Fatal(err)
-	}
-	git := creationGit{root: root, defaultBranch: "main", revisions: map[string]string{"main": "main-head"}}
-	service := New(st, git, func(context.Context, contract.ResolveOptions) (model.Manifest, error) { return model.Manifest{}, nil }, testutil.Time, func() (string, error) { return testutil.ID(t, 14), nil }, nil, nil)
-	if _, err := service.NewWorkItem(context.Background(), NewOptions{Title: "Second", Home: true, CWD: root}); err == nil || !strings.Contains(err.Error(), "already claimed") {
-		t.Fatalf("err=%v", err)
 	}
 }
 

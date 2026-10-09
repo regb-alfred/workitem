@@ -55,23 +55,6 @@ func TestWorktreeSnapshotCombinesHeadBranchAndStatus(t *testing.T) {
 	}
 }
 
-func TestRepositoryHomeReturnsPrimaryCheckoutFromLinkedWorktree(t *testing.T) {
-	if _, err := exec.LookPath("git"); err != nil {
-		t.Skip("git not available")
-	}
-	repo := setupRepo(t)
-	branch := strings.TrimSpace(runGitOutput(t, repo, "branch", "--show-current"))
-	linked := filepath.Join(t.TempDir(), "linked")
-	runGit(t, repo, "worktree", "add", "-b", "feature", linked)
-	home, err := git.New("git").RepositoryHome(context.Background(), linked)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !samePath(t, home.Path, repo) || home.Branch != branch || home.Bare || home.Detached {
-		t.Fatalf("home=%+v", home)
-	}
-}
-
 func TestParseWorktreeList(t *testing.T) {
 	got := git.ParseWorktreeList("worktree /repo\nHEAD abc\nbranch refs/heads/main\n\nworktree /tmp/feature\nHEAD def\nbranch refs/heads/feature\n\nworktree /tmp/detached\nHEAD fed\ndetached\n")
 	if len(got) != 3 || got[0].Path != "/repo" || got[0].Branch != "main" || got[1].Branch != "feature" || !got[2].Detached {
@@ -223,7 +206,7 @@ func runGitOutput(t *testing.T, dir string, args ...string) string {
 	if err != nil {
 		t.Fatalf("git %s failed: %v\n%s", strings.Join(args, " "), err, out)
 	}
-	return string(out)
+	return strings.TrimSpace(string(out))
 }
 
 func runGit(t *testing.T, dir string, args ...string) {

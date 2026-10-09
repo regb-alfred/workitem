@@ -53,13 +53,13 @@ func TestExecCommandConstructionByMode(t *testing.T) {
 		wantArgs []string
 		headless bool
 	}{
-		{mode: agent.ModeTUI, wantArgs: []string{"--extension", "/tmp/bridge.ts", "--session", "/tmp/item/sessions/pi/session.jsonl"}},
-		{mode: agent.ModeHeadless, wantArgs: []string{"--mode", "rpc", "--session", "/tmp/item/sessions/pi/session.jsonl"}, headless: true},
+		{mode: agent.ModeTUI, wantArgs: []string{"--extension", "/tmp/bridge.ts", "--session", "/tmp/item/sessions/pi/session.jsonl", "--skill", "/tmp/skill one", "--skill", "/tmp/skill-two"}},
+		{mode: agent.ModeHeadless, wantArgs: []string{"--mode", "rpc", "--session", "/tmp/item/sessions/pi/session.jsonl", "--skill", "/tmp/skill one", "--skill", "/tmp/skill-two"}, headless: true},
 	} {
 		t.Run(string(tt.mode), func(t *testing.T) {
 			r := &recordingRunner{}
 			client := pi.Client{Path: "pi", Runner: r}
-			err := client.ExecMode(context.Background(), pi.ExecSpec{SessionPath: "/tmp/item/sessions/pi/session.jsonl", BridgePath: "/tmp/bridge.ts", Mode: tt.mode, CWD: "/tmp/worktree", Env: map[string]string{"WI_ID": "abc"}, LogPath: "/tmp/pi.log"})
+			err := client.ExecMode(context.Background(), pi.ExecSpec{SessionPath: "/tmp/item/sessions/pi/session.jsonl", BridgePath: "/tmp/bridge.ts", Mode: tt.mode, CWD: "/tmp/worktree", Env: map[string]string{"WI_ID": "abc"}, LogPath: "/tmp/pi.log", Skills: []string{"/tmp/skill one", "/tmp/skill-two"}})
 			if err != nil {
 				t.Fatal(err)
 			}

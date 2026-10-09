@@ -40,7 +40,7 @@ func TestAllPublicHelpTopicsAreDocumented(t *testing.T) {
 		"version", "new", "list", "show", "events", "start", "switch", "next", "resume", "merge", "shelve", "archive", "delete", "shutdown", "label", "deep",
 		"state", "state show", "state set",
 		"attention", "attention activity", "attention defer", "attention queue",
-		"workspace", "workspace status", "workspace ensure", "workspace release", "workspace relocate",
+		"workspace", "workspace status", "workspace ensure", "workspace release",
 		"terminal", "terminal status", "terminal ensure", "terminal enter", "terminal close",
 		"agent", "agent status", "agent control", "agent control send", "agent control abort", "agent control shutdown",
 		"agent runtime", "agent runtime status", "agent runtime ensure", "agent runtime stop", "agent monitor",

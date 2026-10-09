@@ -11,15 +11,17 @@
 
 ## Concepts
 
-- [Workspaces](https://regb.github.io/workitem/concepts/workspaces/): Managed slots and repository-home claims.
-- [Agents and conversations](https://regb.github.io/workitem/concepts/agents/): Durable conversations, TUI, and RPC runtimes.
+- [Repositories](https://regb.github.io/workitem/concepts/repositories/): Independent bare stores, repository names, and starting commits.
+- [Workspaces](https://regb.github.io/workitem/concepts/workspaces/): Managed slots, claims, and persistent task branches.
+- [Agents and conversations](https://regb.github.io/workitem/concepts/agents/): Durable conversations, TUI, and headless runtimes.
 - [Attention](https://regb.github.io/workitem/concepts/attention/): How wi ranks work that needs a human.
 
 ## Workflows
 
 - [Everyday workflow](https://regb.github.io/workitem/guides/everyday-workflow/): Capture, supervise, integrate, and archive work.
-- [Delegate work](https://regb.github.io/workitem/guides/delegation/): Start an unattached TUI or headless RPC agent.
+- [Delegate work](https://regb.github.io/workitem/guides/delegation/): Descriptions, startup messages, and unattached TUI or headless agents.
 - [Review agent work](https://regb.github.io/workitem/guides/review-and-follow-up/): Inspect changes and send corrections.
+- [Use tmux](https://regb.github.io/workitem/guides/tmux/): Navigation bindings and prompt-only creation popup.
 - [Merge completed work](https://regb.github.io/workitem/guides/merging/): Rebase and fast-forward a local target.
 
 ## Reference

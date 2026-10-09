@@ -26,27 +26,31 @@ const (
 )
 
 const (
-	MethodPing              = "ping"
-	MethodStatus            = "status"
-	MethodShutdown          = "shutdown"
-	MethodListManifests     = "list_manifests"
-	MethodConversation      = "conversation"
-	MethodAgentObservation  = "agent_observation"
-	MethodCanonicalManifest = "canonical_manifest"
-	MethodManifestCommand   = "manifest_command"
-	MethodManifestQueue     = "manifest_command_queue"
-	MethodCreateItem        = "create_item"
-	MethodStoreCommand      = "store_command"
-	MethodRuntimeEvent      = "runtime_event"
-	MethodRuntimeEvents     = "runtime_events"
-	MethodItemEvents        = "item_events"
-	MethodActivityBarrier   = "activity_barrier"
-	MethodActionability     = "actionability_snapshot"
-	MethodItemResources     = "item_resources"
+	MethodPing               = "ping"
+	MethodStatus             = "status"
+	MethodShutdown           = "shutdown"
+	MethodListRepositories   = "list_repositories"
+	MethodRegisterRepository = "register_repository"
+	MethodRenameRepository   = "rename_repository"
+	MethodListManifests      = "list_manifests"
+	MethodConversation       = "conversation"
+	MethodAgentObservation   = "agent_observation"
+	MethodCanonicalManifest  = "canonical_manifest"
+	MethodManifestCommand    = "manifest_command"
+	MethodManifestQueue      = "manifest_command_queue"
+	MethodCreateItem         = "create_item"
+	MethodStoreCommand       = "store_command"
+	MethodRuntimeEvent       = "runtime_event"
+	MethodRuntimeEvents      = "runtime_events"
+	MethodItemEvents         = "item_events"
+	MethodActivityBarrier    = "activity_barrier"
+	MethodActionability      = "actionability_snapshot"
+	MethodItemResources      = "item_resources"
 )
 
 type Request struct {
 	ProtocolVersion int             `json:"protocol_version"`
+	SchemaVersion   uint64          `json:"schema_version"`
 	BuildIdentity   string          `json:"build_identity,omitempty"`
 	ID              string          `json:"id"`
 	Method          string          `json:"method"`

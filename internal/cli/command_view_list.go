@@ -267,9 +267,6 @@ func printWorkList(w io.Writer, res app.WorkListResult, mode string, color bool,
 				displayCell = colorBold(displayCell, color)
 			}
 			repository := item.Repository
-			if item.RepositoryHome {
-				repository += " (" + colorBold("home", color) + ")"
-			}
 			worktree := padRight(worktreeListLabel(item), worktreeWidth)
 			deep := formatDeepWorkColumn(item.DeepWork, deepWidth)
 			labels := formatLabelColumn(labelMarkers(item), labelWidth, color)

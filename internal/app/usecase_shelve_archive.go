@@ -73,7 +73,7 @@ func (a *App) finishArchive(ctx context.Context, m model.Manifest, prevState str
 	var workspaceWarnings []string
 	var err error
 	if len(deferTerminalClose) > 0 && deferTerminalClose[0] {
-		m, workspaceWarnings, workspaceChanged, deferredSession, err = a.releaseWorkspaceBeforeDeferredTerminalClose(ctx, m, force)
+		m, workspaceWarnings, workspaceChanged, deferredSession, err = a.releaseWorkspaceBeforeDeferredTerminalClose(ctx, m)
 	} else {
 		m, workspaceWarnings, workspaceChanged, err = a.closeWorkspace(ctx, m, force, env)
 	}
@@ -110,7 +110,7 @@ func (a *App) finishArchive(ctx context.Context, m model.Manifest, prevState str
 // pane, so killing that session synchronously would kill wi before it can save
 // archived state. Only reusable slots are eligible: releasing one updates the
 // durable assignment without deleting the process's current directory.
-func (a *App) releaseWorkspaceBeforeDeferredTerminalClose(ctx context.Context, m model.Manifest, force bool) (model.Manifest, []string, bool, string, error) {
+func (a *App) releaseWorkspaceBeforeDeferredTerminalClose(ctx context.Context, m model.Manifest) (model.Manifest, []string, bool, string, error) {
 	warnings := []string{}
 	if runtime, err := a.Store.LoadAgentRuntime(m.ID); err != nil {
 		return m, warnings, false, "", err
@@ -120,7 +120,7 @@ func (a *App) releaseWorkspaceBeforeDeferredTerminalClose(ctx context.Context, m
 	if err := a.ensureCheckoutReleasable(ctx, m); err != nil {
 		return m, warnings, false, "", err
 	}
-	if m.Checkout.Present() && m.Checkout.Claim != nil && m.Checkout.Specification.Kind != model.WorkspaceKindRepositoryHome && !workspacecore.IsSlotPathName(m.Checkout.Claim.Path) {
+	if m.Checkout.Present() && m.Checkout.Claim != nil && !workspacecore.IsSlotPathName(m.Checkout.Claim.Path) {
 		return m, warnings, false, "", fmt.Errorf("cannot defer terminal closure for non-slot worktree %s", m.Checkout.Claim.Path)
 	}
 	session := strings.TrimSpace(m.TerminalSessionName())
@@ -134,7 +134,7 @@ func (a *App) releaseWorkspaceBeforeDeferredTerminalClose(ctx context.Context, m
 		}
 	}
 	hadCheckoutClaim := m.Checkout.Present() && m.Checkout.Claim != nil && m.Checkout.Claim.Path != ""
-	released, err := a.releaseCheckout(ctx, m, force)
+	released, err := a.releaseCheckout(ctx, m)
 	if err != nil {
 		return m, warnings, false, "", err
 	}
@@ -243,7 +243,7 @@ func (a *App) closeWorkspace(ctx context.Context, m model.Manifest, force bool, 
 	}
 
 	hadCheckout := m.Checkout.Present() && m.Checkout.Claim != nil && m.Checkout.Claim.Path != ""
-	released, err := a.releaseCheckout(ctx, m, force)
+	released, err := a.releaseCheckout(ctx, m)
 	if err != nil {
 		return m, warnings, changed, err
 	}

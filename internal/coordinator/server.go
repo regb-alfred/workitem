@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	gitpkg "github.com/regb/workitem/internal/git"
 	"github.com/regb/workitem/internal/model"
 	"github.com/regb/workitem/internal/store"
 	"github.com/regb/workitem/internal/version"
@@ -353,6 +354,14 @@ func (s *Server) handle(conn *net.UnixConn, access string) {
 		s.writeError(conn, request.ID, "protocol_mismatch", fmt.Sprintf("unsupported protocol %d; expected %d", request.ProtocolVersion, ProtocolVersion))
 		return
 	}
+	// A build mismatch alone is not permission to replace this writer. Old
+	// clients must not shut down a daemon whose database they cannot open.
+	// Health reads and fenced runtime facts do not interpret durable schema;
+	// keeping these independent also preserves existing runtime event hosts.
+	if request.Method != MethodPing && request.Method != MethodStatus && request.Method != MethodRuntimeEvent && request.SchemaVersion != SchemaVersion {
+		s.writeError(conn, request.ID, "schema_mismatch", fmt.Sprintf("client database schema %d cannot control daemon schema %d; use a matching wi build", request.SchemaVersion, SchemaVersion))
+		return
+	}
 	if request.BuildIdentity != "" && request.BuildIdentity != s.buildIdentity && request.Method != MethodStatus && request.Method != MethodShutdown && request.Method != MethodRuntimeEvent {
 		s.writeError(conn, request.ID, "build_mismatch", "client and daemon builds differ; restart the older process")
 		return
@@ -578,6 +587,21 @@ func (s *Server) handle(conn *net.UnixConn, access string) {
 			s.writeError(conn, request.ID, "invalid_request", "decode create command: "+err.Error())
 			return
 		}
+		if ref := createRequest.Command.Manifest.Repository; ref.ID != "" {
+			source, err := s.database.RepositorySource(context.Background(), RepositorySourceRequest{Selector: ref.ID, Revision: ref.CreatedFromCommit, SkipLabels: true})
+			if err != nil || source.Commit != ref.CreatedFromCommit {
+				s.writeError(conn, request.ID, "invalid_request", "created-from commit is not present in the registered repository")
+				return
+			}
+			git := gitpkg.New("git")
+			pin := "refs/wi/pins/" + ref.CreatedFromCommit
+			if _, err := git.RevParse(context.Background(), source.GitDir, pin); err != nil {
+				if err := git.UpdateRef(context.Background(), source.GitDir, pin, source.Commit, "", "wi: retain item base"); err != nil {
+					s.writeError(conn, request.ID, "repository_error", err.Error())
+					return
+				}
+			}
+		}
 		if access == AccessAgent {
 			createRequest.Command.Actor = "agent"
 			if err := validateAgentCreateItem(createRequest.Command.Manifest); err != nil {
@@ -651,6 +675,67 @@ func (s *Server) handle(conn *net.UnixConn, access string) {
 			return
 		}
 		result = commandResult
+	case MethodRenameRepository:
+		var command RenameRepositoryCommand
+		if err := json.Unmarshal(request.Payload, &command); err != nil {
+			s.writeError(conn, request.ID, "invalid_request", err.Error())
+			return
+		}
+		s.domainMu.Lock()
+		renamed, err := s.database.RenameRepository(command)
+		s.domainMu.Unlock()
+		if err != nil {
+			s.writeError(conn, request.ID, "repository_error", err.Error())
+			return
+		}
+		result = renamed
+	case MethodListRepositories:
+		repositories, err := s.database.ListRepositories()
+		if err != nil {
+			s.writeError(conn, request.ID, "database_error", err.Error())
+			return
+		}
+		result = repositories
+	case MethodRepositorySource:
+		var query RepositorySourceRequest
+		if err := json.Unmarshal(request.Payload, &query); err != nil {
+			s.writeError(conn, request.ID, "invalid_request", err.Error())
+			return
+		}
+		value, err := s.database.RepositorySource(context.Background(), query)
+		if err != nil {
+			s.writeError(conn, request.ID, "repository_error", err.Error())
+			return
+		}
+		if access == AccessAgent {
+			value.GitDir = ""
+			value.Repository.OriginURL = ""
+		}
+		result = value
+	case MethodRegisterRepository:
+		var command RegisterRepositoryCommand
+		if err := json.Unmarshal(request.Payload, &command); err != nil {
+			s.writeError(conn, request.ID, "invalid_request", err.Error())
+			return
+		}
+		path, err := model.OwnedRepositoryGitDir(s.dataRoot, command.Repository.ID)
+		if err == nil {
+			inspectionCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			err = gitpkg.New("git").ValidateOwnedBare(inspectionCtx, path, command.Repository.IntegrationBranch)
+			cancel()
+		}
+		if err != nil {
+			s.writeError(conn, request.ID, "repository_error", err.Error())
+			return
+		}
+		s.domainMu.Lock()
+		registered, err := s.database.RegisterRepository(command)
+		s.domainMu.Unlock()
+		if err != nil {
+			s.writeError(conn, request.ID, "repository_error", err.Error())
+			return
+		}
+		result = registered
 	case MethodListManifests:
 		manifests, err := s.database.ListManifests()
 		if err != nil {
@@ -683,6 +768,8 @@ func (s *Server) handle(conn *net.UnixConn, access string) {
 
 func agentMethodAllowed(method string) bool {
 	switch method {
+	case MethodRepositorySource:
+		return true
 	case MethodPing, MethodStatus, MethodListManifests, MethodCreateItem:
 		return true
 	default:

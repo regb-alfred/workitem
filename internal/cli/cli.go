@@ -34,15 +34,16 @@ const (
 )
 
 type Config struct {
-	Stdout        io.Writer
-	Stderr        io.Writer
-	Stdin         io.Reader
-	CWD           string
-	Env           map[string]string
-	StateRoot     string
-	App           *app.App
-	Coordinator   *coordinator.Client
-	ControlAccess string
+	RequireOwnedRepository bool
+	Stdout                 io.Writer
+	Stderr                 io.Writer
+	Stdin                  io.Reader
+	CWD                    string
+	Env                    map[string]string
+	StateRoot              string
+	App                    *app.App
+	Coordinator            *coordinator.Client
+	ControlAccess          string
 }
 
 func Main(ctx context.Context, args []string) int {
@@ -80,6 +81,7 @@ func Main(ctx context.Context, args []string) int {
 	application.DeepWorkConfig = cfgFile.DeepWork
 	application.ItemConfig = cfgFile.Item
 	application.ListConfig = cfgFile.List
+	application.AgentConfig = cfgFile.Agent
 	application.AgentStatusConfig = cfgFile.AgentStatus
 	application.AttentionConfig = cfgFile.Attention
 	application.DirenvConfig = cfgFile.Direnv
@@ -112,7 +114,7 @@ func Main(ctx context.Context, args []string) int {
 	}
 	application.AgentRuntimeStateRoot = paths.DataStateRoot
 	application.AgentRuntimeSocketRoot = paths.DataRuntimeRoot
-	runConfig := Config{Stdout: os.Stdout, Stderr: os.Stderr, Stdin: os.Stdin, CWD: cwd, Env: env, StateRoot: paths.DataStateRoot, App: application}
+	runConfig := Config{RequireOwnedRepository: true, Stdout: os.Stdout, Stderr: os.Stderr, Stdin: os.Stdin, CWD: cwd, Env: env, StateRoot: paths.DataStateRoot, App: application}
 	defaultSocketPath, err := coordinator.SocketPath(paths.RuntimeDir, paths.DataRoot)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "daemon is required for this command: %s\n", err)
@@ -208,6 +210,8 @@ func Run(ctx context.Context, args []string, cfg Config) int {
 	cmd := args[0]
 	var err error
 	switch cmd {
+	case "repo":
+		err = runRepository(ctx, args[1:], cfg, jsonOut)
 	case "new":
 		err = runNew(ctx, args[1:], cfg, jsonOut)
 	case "list":

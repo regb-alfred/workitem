@@ -62,10 +62,3 @@ func TestCheckoutRejectsObsoleteAndMalformedJSON(t *testing.T) {
 		}
 	}
 }
-
-func TestRepositoryHomeHasNoBranchIntent(t *testing.T) {
-	c := model.NewCheckout(model.WorkspaceKindRepositoryHome, model.ExecutorLocal, "old-branch")
-	if c.Specification.Branch != "" {
-		t.Fatalf("home branch intent: %q", c.Specification.Branch)
-	}
-}

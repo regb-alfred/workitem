@@ -88,6 +88,20 @@ func (a *App) agentRuntimeEnvironment(ctx context.Context, m model.Manifest) (ma
 	for key, value := range overrides {
 		base[key] = value
 	}
+	// A long-lived tmux server may predate installation of wi. Keep the
+	// running executable discoverable without importing another item's PATH
+	// or secrets from the caller. Apply after direnv so it cannot hide wi.
+	if self := strings.TrimSpace(a.SelfPath); filepath.IsAbs(self) {
+		directory := filepath.Dir(self)
+		entries := filepath.SplitList(base["PATH"])
+		if !slices.Contains(entries, directory) {
+			if base["PATH"] == "" {
+				base["PATH"] = directory
+			} else {
+				base["PATH"] = directory + string(os.PathListSeparator) + base["PATH"]
+			}
+		}
+	}
 	if a.Tmux != nil {
 		if current, inspectErr := a.Tmux.SessionEnvironment(ctx, m.TerminalSessionName()); inspectErr == nil {
 			remove := make(map[string]bool, len(scrub)+len(current))

@@ -8,62 +8,28 @@ import (
 
 	"github.com/regb/workitem/internal/agent"
 	"github.com/regb/workitem/internal/app"
-	"github.com/regb/workitem/internal/coordinator"
 	"github.com/regb/workitem/internal/model"
 )
 
 func runStart(ctx context.Context, args []string, cfg Config, jsonOut bool) error {
 	fs := newFlagSet("start", cfg.Stderr)
-	var agentMode, agentName string
-	var force, createNew, home, noDefaultLabels bool
-	fs.BoolVar(&createNew, "new", false, "create a minimal item from the title before starting")
-	fs.BoolVar(&home, "home", false, "with --new, borrow the repository's primary default-branch checkout")
-	fs.BoolVar(&noDefaultLabels, "no-default-labels", false, "do not inherit default labels when creating with --new")
+	var agentMode string
+	var force bool
 	fs.StringVar(&agentMode, "agent-mode", "tui", "agent runtime mode: tui or headless")
-	fs.StringVar(&agentName, "agent", "default", "with --new, configured agent definition")
 	fs.BoolVar(&force, "force", false, "override deep work active limit")
 	if err := fs.Parse(args); err != nil {
 		return usageErr{err}
 	}
-	if len(fs.Args()) == 0 || !createNew && len(fs.Args()) != 1 {
-		return usageErr{errors.New("usage: wi start [--new] [--home] [--no-default-labels] [--agent-mode <tui|headless>] [--force] <slug-or-title>")}
+	if fs.NArg() != 1 {
+		return usageErr{errors.New("usage: wi start [--agent-mode <tui|headless>] [--force] <slug>")}
 	}
-	input := strings.TrimSpace(strings.Join(fs.Args(), " "))
+	input := strings.TrimSpace(fs.Arg(0))
 	if input == "" {
-		return usageErr{errors.New("start requires an existing slug or, with --new, a title")}
-	}
-	if noDefaultLabels && !createNew {
-		return usageErr{errors.New("--no-default-labels requires --new")}
-	}
-	if home && !createNew {
-		return usageErr{errors.New("--home requires --new")}
-	}
-	if !createNew && agentName != "default" {
-		return usageErr{errors.New("--agent requires --new")}
+		return usageErr{errors.New("start requires an existing active slug")}
 	}
 	mode, err := agent.ParseMode(agentMode)
 	if err != nil {
 		return usageErr{err}
-	}
-	if createNew {
-		if cfg.ControlAccess == coordinator.AccessAgent {
-			return errors.New("agent endpoint may create backlog items only; start --new is not allowed")
-		}
-		created, createErr := createCoordinatorWorkItem(ctx, cfg, app.NewWorkItemOptions{Title: input, CWD: cfg.CWD, Env: cfg.Env, NoDefaultLabels: noDefaultLabels, Home: home, Agent: agentName})
-		if createErr != nil {
-			return createErr
-		}
-		result := app.StartNewWorkItemResult{New: created}
-		result.Start, err = coordinatorStartWorkItem(ctx, cfg, created.Manifest.ID, force, !jsonOut && mode == agent.ModeTUI, mode, "work_item.started")
-		if err != nil {
-			return fmt.Errorf("created work item %s (%s), but could not start it: %w", created.Manifest.Slug, created.Manifest.ID, err)
-		}
-		if jsonOut {
-			return writeJSON(cfg.Stdout, result)
-		}
-		fmt.Fprintf(cfg.Stdout, "created work item %s (%s)\n", result.New.Manifest.Slug, result.New.Manifest.ID)
-		printStartResult(cfg, result.Start)
-		return nil
 	}
 	manifest, err := cfg.App.Store.ResolveActiveSlug(input)
 	if err != nil {

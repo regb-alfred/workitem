@@ -3,6 +3,7 @@ package config
 import (
 	"bufio"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -29,10 +30,14 @@ func LoadProject(path string) (ProjectConfig, []string, error) {
 		return cfg, nil, fmt.Errorf("open project config: %w", err)
 	}
 	defer f.Close()
+	return ReadProject(f)
+}
 
+func ReadProject(reader io.Reader) (ProjectConfig, []string, error) {
+	cfg := ProjectConfig{}
 	section := ""
 	warnings := []string{}
-	scanner := bufio.NewScanner(f)
+	scanner := bufio.NewScanner(reader)
 	lineNo := 0
 	for scanner.Scan() {
 		lineNo++

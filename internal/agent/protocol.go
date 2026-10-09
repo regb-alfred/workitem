@@ -7,7 +7,7 @@ import (
 	driverprotocol "github.com/regb/workitem/agentdriver/protocol"
 )
 
-const RuntimeProtocolVersion = driverprotocol.Version
+const RuntimeProtocolVersion = driverprotocol.RuntimeVersion
 
 const (
 	CommandPrompt   = driverprotocol.CommandPrompt

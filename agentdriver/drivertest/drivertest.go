@@ -55,6 +55,7 @@ type RuntimeSuite struct {
 	Driver string
 	Mode   driverprotocol.Mode
 	Config json.RawMessage
+	Skills []driverprotocol.Skill
 	Launch func(context.Context, driverprotocol.LaunchRequest, func(driverprotocol.Ready) error) error
 }
 
@@ -86,7 +87,7 @@ func RunRuntime(t TestingT, suite RuntimeSuite) {
 	defer cancel()
 	ready := make(chan driverprotocol.Ready, 1)
 	done := make(chan error, 1)
-	request := driverprotocol.LaunchRequest{ProtocolVersion: driverprotocol.Version, Driver: suite.Driver, Agent: "default", Config: suite.Config, Runtime: driverprotocol.Runtime{ID: "runtime-conformance", WorkItemID: "01KZYHGDCECSFS4BJ2SNTQP49V", Mode: suite.Mode, CWD: dir, ControlSocketPath: controlPath, EventSocketPath: eventPath}, Conversation: driverprotocol.Conversation{ID: "conversation-conformance", Locator: filepath.Join(dir, "conversation.jsonl"), Format: "test"}}
+	request := driverprotocol.LaunchRequest{ProtocolVersion: driverprotocol.Version, Driver: suite.Driver, Agent: "default", Config: suite.Config, Skills: suite.Skills, Runtime: driverprotocol.Runtime{ID: "runtime-conformance", WorkItemID: "01KZYHGDCECSFS4BJ2SNTQP49V", Mode: suite.Mode, CWD: dir, ControlSocketPath: controlPath, EventSocketPath: eventPath}, Conversation: driverprotocol.Conversation{ID: "conversation-conformance", Locator: filepath.Join(dir, "conversation.jsonl"), Format: "test"}}
 	go func() {
 		done <- suite.Launch(ctx, request, func(value driverprotocol.Ready) error { ready <- value; return nil })
 	}()
@@ -97,6 +98,9 @@ func RunRuntime(t TestingT, suite RuntimeSuite) {
 		t.Fatalf("driver exited before ready: %v", err)
 	case <-ctx.Done():
 		t.Fatalf("driver readiness: %v", ctx.Err())
+	}
+	if len(suite.Skills) > 0 && !negotiated.Capabilities.BundledSkills {
+		t.Fatalf("driver does not support bundled skills: %+v", negotiated)
 	}
 	if suite.Mode == driverprotocol.ModeHeadless && !negotiated.Capabilities.Headless {
 		t.Fatalf("driver did not advertise headless support: %+v", negotiated.Capabilities)
@@ -117,7 +121,7 @@ func RunRuntime(t TestingT, suite RuntimeSuite) {
 		}
 	}
 readyEvent:
-	shutdown := driverprotocol.ControlCommand{ProtocolVersion: driverprotocol.Version, ID: "shutdown-conformance", RuntimeID: request.Runtime.ID, WorkItemID: request.Runtime.WorkItemID, Type: driverprotocol.CommandShutdown, CreatedAt: time.Now()}
+	shutdown := driverprotocol.ControlCommand{ProtocolVersion: driverprotocol.RuntimeVersion, ID: "shutdown-conformance", RuntimeID: request.Runtime.ID, WorkItemID: request.Runtime.WorkItemID, Type: driverprotocol.CommandShutdown, CreatedAt: time.Now()}
 	for {
 		err = driverprotocol.SubmitControl(ctx, controlPath, shutdown)
 		if err == nil {

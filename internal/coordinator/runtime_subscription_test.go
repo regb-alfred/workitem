@@ -2,7 +2,9 @@ package coordinator
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"net"
 	"testing"
 	"time"
 
@@ -71,6 +73,24 @@ func TestRuntimeEventLongPollWakesAfterCommittedEvent(t *testing.T) {
 	olderBuildClient := &Client{SocketPath: socket, BuildIdentity: "older-build"}
 	if _, err := olderBuildClient.IngestRuntimeEvent(ctx, RuntimeSemanticEvent{ID: "runtime-sub:event-2", RuntimeID: "runtime-sub", WorkItemID: importTestID, Type: "agent.settled", Timestamp: now.Add(2 * time.Second)}); err != nil {
 		t.Fatalf("current runtime event from older build was rejected: %v", err)
+	}
+	// Existing runtime hosts predate the schema-control handshake. Compact
+	// events still work, but retain the normal runtime-owner fence.
+	conn, err := net.DialTimeout("unix", socket, time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	conn.SetDeadline(time.Now().Add(time.Second))
+	legacyPayload, _ := json.Marshal(RuntimeSemanticEvent{ID: "runtime-sub:event-3", RuntimeID: "runtime-sub", WorkItemID: importTestID, Type: "agent.settled", Timestamp: now.Add(3 * time.Second)})
+	if err := json.NewEncoder(conn).Encode(Request{ProtocolVersion: ProtocolVersion, BuildIdentity: "older-build", ID: "legacy-runtime", Method: MethodRuntimeEvent, Payload: legacyPayload}); err != nil {
+		conn.Close()
+		t.Fatal(err)
+	}
+	var legacyResponse Response
+	err = json.NewDecoder(conn).Decode(&legacyResponse)
+	conn.Close()
+	if err != nil || !legacyResponse.OK {
+		t.Fatalf("legacy runtime response=%+v error=%v", legacyResponse, err)
 	}
 	_, err = client.IngestRuntimeEvent(ctx, RuntimeSemanticEvent{ID: "stale:event-1", RuntimeID: "stale", WorkItemID: importTestID, Type: "turn.started", Timestamp: now.Add(3 * time.Second)})
 	var protocolErr *ProtocolError

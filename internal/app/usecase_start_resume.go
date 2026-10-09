@@ -8,11 +8,6 @@ import (
 	"github.com/regb/workitem/internal/model"
 )
 
-type StartNewWorkItemResult struct {
-	New   NewWorkItemResult `json:"new"`
-	Start StartResult       `json:"start"`
-}
-
 type StartResult struct {
 	Transition StateTransitionResult `json:"transition"`
 	Workspace  CompositionResult     `json:"workspace"`

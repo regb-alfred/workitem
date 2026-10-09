@@ -22,6 +22,18 @@ type helpDoc struct {
 }
 
 var helpDocs = map[string]helpDoc{
+	"repo": {
+		Summary:     "Manage named Wi-owned repositories",
+		Usage:       []string{"wi repo <add|list|show|rename>"},
+		Description: []string{"Repository names are unique human-facing selectors. Stable repository IDs determine Git store paths and item references."},
+		SeeAlso:     []string{"repo rename"},
+	},
+	"repo rename": {
+		Summary:     "Rename a registered repository",
+		Usage:       []string{"wi repo rename OLD NEW"},
+		Description: []string{"Changes the unique repository name and records repository.renamed. IDs, item references, branches, worktrees and conversations remain unchanged. The old name stops resolving. Renaming to the current name is a no-op."},
+		Examples:    []string{"wi repo rename infra netfabric-infra"},
+	},
 	"daemon": {
 		Summary:     "Run and inspect the authoritative local coordinator",
 		Usage:       []string{"wi daemon <start|serve|status|stop|doctor>"},
@@ -77,33 +89,35 @@ var helpDocs = map[string]helpDoc{
 	},
 	"new": {
 		Summary: "Create a durable work item",
-		Usage:   []string{"wi new [options] <title>"},
+		Usage:   []string{"wi new --title <text> [options]"},
 		Description: []string{
-			"Normally creates a work item in backlog. Durable metadata and DESCRIPTION.md are written immediately; no terminal session, conversation, runtime, or composed use case is started. Ordinary items begin with an absent managed-slot checkout; --home records a borrowed primary-checkout claim without creating or modifying that checkout. Without --base, the immutable created-from commit is resolved from the local default branch; no fetch occurs. If no local default can be determined, current HEAD is used with a warning.",
-			"With --prompt, the prompt is persisted as DESCRIPTION.md, the item moves to working, and an unattached agent receives it through runtime control. TUI mode is the default: it creates the normal tmux runtime for later entry but does not switch or attach the caller. Use --agent-mode headless for an explicitly headless runtime. If startup or delivery fails, the command reports the durable partial outcome instead of deleting the item.",
+			"Normally creates a work item in backlog. Durable metadata and DESCRIPTION.md are written immediately; no terminal session, conversation, runtime, or composed use case is started. Items begin with an absent managed-slot checkout. Select a registered repository with --repo NAME, or inherit the current item’s repository. Without --base, the immutable starting commit comes from the registered integration branch; no fetch occurs and there is no fallback to HEAD.",
+			"With --start, the item moves to working and an unattached agent receives the global agent.startup_message through runtime control. --prompt overrides that message and requires --start; it never changes DESCRIPTION.md. --desc-file remains the durable task description. TUI mode is the default: it creates the normal tmux runtime for later entry but does not switch or attach the caller. Use --agent-mode headless for an explicitly headless runtime. If startup or delivery fails, the command reports the durable partial outcome instead of deleting the item.",
 			"Use --desc-file for a backlog item's self-contained multiline description. Labels are repeatable and augment defaults from user config, <repository>/.config/wi.toml, and WI_ITEM_DEFAULT_LABELS; use --no-default-labels to opt out. Deep work is a built-in attribute, not a label.",
-			"A sandbox may set WI_AGENT_DAEMON_SOCKET to the daemon's separately mounted agent endpoint. That endpoint preserves current Git working-directory resolution but permits only absent managed-slot backlog creation; --home and --prompt are rejected.",
+			"A sandbox may set WI_AGENT_DAEMON_SOCKET to the daemon's separately mounted agent endpoint. That endpoint permits only absent managed-slot backlog creation; --start is rejected. Worktree-relative bases require item and repository context available through the endpoint.",
 		},
 		Options: []helpOption{
+			{"--title <text>", "Required explicit title. Derive the slug unless --slug is supplied; no title inference."},
 			{"--desc-file <path>", "Read DESCRIPTION.md content from a file."},
-			{"--prompt <text>", "Persist the text as DESCRIPTION.md and immediately start an unattached agent with it."},
+			{"--start", "Start an unattached agent and send the configured startup message."},
+			{"--prompt <text>", "With --start, override the startup message without changing the description."},
 			{"--agent <name>", "Select a configured agent definition; default is default."},
-			{"--agent-mode <mode>", "With --prompt, start tui (default) or headless."},
+			{"--agent-mode <mode>", "With --start, start tui (default) or headless."},
 			{"--slug <slug>", "Set the initial active slug; must be unique."},
 			{"--label <label>", "Add a label after inherited defaults; repeatable."},
 			{"--no-default-labels", "Do not inherit user or repository default labels."},
 			{"--deep", "Mark the item as deep work."},
-			{"--home", "Borrow the repository's primary checkout; it must be on the local default branch and have no other active home claim."},
-			{"--repo <path>", "Create the item for another local Git repository."},
-			{"--base <revision>", "Use a specific revision instead of the local default branch; use HEAD for the current checkout."},
+			{"--repo <name>", "Select a registered repository; overrides the current item’s repository."},
+			{"--base <revision>", "Use a named branch, tag, or commit from the owned store. ^ selects integration. HEAD, @, - and contextual expressions resolve in the current claimed worktree, or fail if context is missing or the repository differs."},
 		},
 		Environment: []helpOption{{"WI_ITEM_DEFAULT_LABELS", "Comma-separated additive default labels."}, {"WI_AGENT_DAEMON_SOCKET", "Use the restricted agent endpoint at an explicit absolute path; it is never auto-started."}},
 		Examples: []string{
-			`wi new --label follow-up --desc-file handoff.md "Investigate refresh race"`,
-			`wi new --prompt "Investigate the race, add a regression test, and report findings." "Investigate refresh race"`,
-			`wi new --agent-mode headless --prompt "Run the audit and report findings." "Audit dependencies"`,
-			`wi new --deep --repo ../api "Redesign authentication"`,
-			`wi new --home "Mainline maintenance"`,
+			`wi new --label follow-up --desc-file handoff.md --title "Investigate refresh race"`,
+			`wi new --desc-file handoff.md --start --title "Investigate refresh race"`,
+			`wi new --desc-file audit.md --start --agent-mode headless --prompt "Read wi show and run the audit." --title "Audit dependencies"`,
+			`wi new --deep --repo api --title "Redesign authentication"`,
+			`wi new --base=@ --title "Build on this task"`,
+			`wi new --base=^ --title "Independent task"`,
 		},
 	},
 	"list": {
@@ -212,7 +226,7 @@ var helpDocs = map[string]helpDoc{
 		Usage:   []string{"wi merge [--item <selector>] [--target <branch>] [target]"},
 		Description: []string{
 			"Merges the current working/waiting item without switching checkouts: requires a completely clean source checkout, rebases its persisted implementation branch onto the target, atomically fast-forwards the local target ref, and synchronizes any worktree where the target is checked out.",
-			"The target defaults to origin/HEAD's local branch, then main, master, develop, or trunk. No fetch, commit, squash, branch deletion, workspace cleanup, shelve, or archive is performed.",
+			"The target defaults to the registered repository's integration branch. No fetch, commit, squash, branch deletion, workspace cleanup, shelve, or archive is performed.",
 			"If rebase, target advancement, or target-worktree synchronization fails, wi aborts/rolls back and restores the pre-merge source and target commits. Dirty target files are allowed only when they do not overlap incoming paths.",
 		},
 		Options: []helpOption{
@@ -222,26 +236,18 @@ var helpDocs = map[string]helpDoc{
 		Examples: []string{`wi merge`, `wi merge main`, `wi merge --item auth --target main`, `wi merge --target develop`, `wi --json merge main`},
 	},
 	"start": {
-		Summary: "Start backlog work, optionally creating a minimal item",
-		Usage: []string{
-			"wi start [--agent-mode <tui|headless>] [--force] <slug>",
-			"wi start --new [--home] [--no-default-labels] [--agent-mode <tui|headless>] [--force] <title>",
-		},
+		Summary: "Start an existing backlog item",
+		Usage:   []string{"wi start [--agent-mode <tui|headless>] [--force] <slug>"},
 		Description: []string{
-			"Without --new, resolves an exact active slug or one unambiguous active-slug substring. Exact matches take precedence; ambiguous substrings fail with candidate IDs and slugs. IDs, title keywords, implicit current-item selection, and --item are not accepted.",
-			"With --new, creates a minimal backlog item from the supplied title, assigns its slug normally, then starts it. If startup fails after creation, the item is retained and identified in the error.",
-			"Starting transitions backlog -> working, enforces deep-work capacity, materializes the worktree, and ensures the selected primary runtime. TUI mode attaches terminal access; Headless mode remains headless. JSON never attaches.",
+			"Resolves an exact active slug or one unambiguous active-slug substring. Exact matches take precedence; ambiguous substrings fail with candidate IDs and slugs. IDs, title keywords, implicit current-item selection, and --item are not accepted.",
+			"Transitions backlog -> working, enforces deep-work capacity, materializes the worktree, and ensures the selected primary runtime. TUI mode attaches terminal access; headless mode remains tmux-independent. JSON never attaches. Starting an existing item does not send a message.",
+			"To create and start an item, use wi new --title TEXT --start.",
 		},
 		Options: []helpOption{
-			{"--new", "Create a minimal item from the supplied title before starting."},
-			{"--home", "With --new, borrow the repository's primary default-branch checkout."},
-			{"--no-default-labels", "With --new, do not inherit default labels."},
-			{"--agent <name>", "With --new, select a configured agent definition."},
-			{"--agent-mode <tui|headless>", "Start native TUI (default) or headless Headless mode."},
+			{"--agent-mode <tui|headless>", "Start native TUI (default) or headless mode."},
 			{"--force", "Override the deep-work active limit."},
 		},
-		Environment: []helpOption{{"WI_ITEM_DEFAULT_LABELS", "Comma-separated defaults applied when --new creates the item."}},
-		Examples:    []string{`wi start auth-race`, `wi start --new "Fix typo"`, `wi start --new --home "Mainline maintenance"`, `wi start --new --agent-mode headless "Audit dependencies"`},
+		Examples: []string{`wi start auth-race`, `wi start --agent-mode headless audit`},
 	},
 	"switch": {
 		Summary: "Select and switch to a work item",
@@ -269,9 +275,9 @@ var helpDocs = map[string]helpDoc{
 	},
 	"workspace": {
 		Summary:     "Inspect and manage the repository worktree",
-		Usage:       []string{"wi workspace <status|ensure|release|relocate> [options] [item]"},
+		Usage:       []string{"wi workspace <status|ensure|release> [options] [item]"},
 		Description: []string{"This core area owns only repository checkout claims and materialization. Tmux access and agent runtimes are separate resources."},
-		SeeAlso:     []string{"workspace status", "workspace ensure", "workspace release", "workspace relocate", "terminal", "agent runtime"},
+		SeeAlso:     []string{"workspace status", "workspace ensure", "workspace release", "terminal", "agent runtime"},
 	},
 	"workspace status": {
 		Summary:     "Inspect worktree and Git condition",
@@ -287,16 +293,9 @@ var helpDocs = map[string]helpDoc{
 	},
 	"workspace release": {
 		Summary:     "Release a clean repository worktree",
-		Usage:       []string{"wi workspace release [--item <selector>] [--force] [item]"},
-		Description: []string{"Releases only the workspace claim. Managed slots are retained for reuse; repository-home directories are never modified. Active agent runtimes and terminal sessions must be stopped explicitly first."},
-		Options:     []helpOption{{"--item <selector>", "Select an item explicitly."}, {"--force", "Pass through to managed worktree release where safe."}},
-	},
-	"workspace relocate": {
-		Summary:     "Use a repository after its checkout moved",
-		Usage:       []string{"wi workspace relocate --repository <path> [--item <selector>] [item]"},
-		Description: []string{"Validates that the replacement repository has the recorded origin and created-from commit, then records it as the current location. The original creation path remains provenance. The item must not have an assigned workspace."},
-		Options:     []helpOption{{"--repository <path>", "Select the replacement repository checkout."}, {"--item <selector>", "Select an item explicitly."}},
-		Examples:    []string{`wi workspace relocate --repository ~/vcs/new/project --item project-bug`},
+		Usage:       []string{"wi workspace release [--item <selector>] [item]"},
+		Description: []string{"Releases only the workspace claim. Managed slots are retained for reuse. Active agent runtimes and terminal sessions must be stopped explicitly first."},
+		Options:     []helpOption{{"--item <selector>", "Select an item explicitly."}},
 	},
 	"terminal": {
 		Summary:     "Manage optional terminal access",

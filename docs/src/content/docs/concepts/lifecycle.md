@@ -39,7 +39,7 @@ wi state set waiting auth
 Most day-to-day transitions should use the safer composed commands:
 
 - `wi start` activates backlog work and ensures its workspace and agent.
-- `wi resume` returns waiting work to working and ensures its runtime.
+- `wi resume` returns waiting work to working and ensures its runtime without sending a prompt.
 - `wi shelve` stops using the active resources when safe and returns work to backlog.
 - `wi archive` shuts down and releases clean resources before archiving.
 - `wi delete` permanently removes an already archived, fully cleaned item.
@@ -51,7 +51,7 @@ wi list --archived --ids
 wi state set backlog --item <item-id>
 ```
 
-Restoration retains the item's ID and history and assigns a fresh active slug. It changes lifecycle only. Run `wi start --item <item-id>` when you want to recreate its workspace and agent resources.
+Restoration retains the item's ID and history and assigns a fresh active slug. It changes lifecycle only. Read its fresh slug with `wi show --item <item-id>`, then run `wi start <active-slug>` to recreate workspace and agent resources. `start` accepts active slugs, not `--item` or IDs.
 
 These commands can report partial outcomes. If a durable transition succeeds and a later resource operation fails, `wi` retains the durable result and tells you what remains.
 

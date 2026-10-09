@@ -5,7 +5,9 @@ package driverprotocol
 
 import "encoding/json"
 
-const Version = 1
+// Version identifies the process bootstrap and conversation-operation protocol.
+// Version 2 transports native conversation lines as opaque base64 bytes.
+const Version = 2
 
 const BootstrapSocketEnv = "WI_AGENT_DRIVER_BOOTSTRAP_SOCKET"
 
@@ -40,17 +42,19 @@ type LaunchRequest struct {
 	Conversation    Conversation      `json:"conversation"`
 	Config          json.RawMessage   `json:"config"`
 	Environment     map[string]string `json:"environment,omitempty"`
+	Skills          []Skill           `json:"skills,omitempty"`
 }
 
 type Capabilities struct {
-	NativeTUI bool `json:"native_tui"`
-	Headless  bool `json:"headless"`
-	Streaming bool `json:"streaming"`
-	Prompt    bool `json:"prompt"`
-	Steering  bool `json:"steering"`
-	FollowUp  bool `json:"follow_up"`
-	Cancel    bool `json:"cancel"`
-	Monitor   bool `json:"monitor"`
+	BundledSkills bool `json:"bundled_skills,omitempty"`
+	NativeTUI     bool `json:"native_tui"`
+	Headless      bool `json:"headless"`
+	Streaming     bool `json:"streaming"`
+	Prompt        bool `json:"prompt"`
+	Steering      bool `json:"steering"`
+	FollowUp      bool `json:"follow_up"`
+	Cancel        bool `json:"cancel"`
+	Monitor       bool `json:"monitor"`
 }
 
 type Hello struct {

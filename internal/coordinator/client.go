@@ -40,7 +40,7 @@ func (c *Client) Call(ctx context.Context, method string, payload any, result an
 	if buildIdentity == "" {
 		buildIdentity = version.BuildIdentity()
 	}
-	request := Request{ProtocolVersion: ProtocolVersion, BuildIdentity: buildIdentity, ID: requestID, Method: method, Payload: encoded}
+	request := Request{ProtocolVersion: ProtocolVersion, SchemaVersion: SchemaVersion, BuildIdentity: buildIdentity, ID: requestID, Method: method, Payload: encoded}
 	dialer := net.Dialer{}
 	conn, err := dialer.DialContext(ctx, "unix", c.SocketPath)
 	if err != nil {
@@ -70,6 +70,13 @@ func (c *Client) Call(ctx context.Context, method string, payload any, result an
 	if response.ID != requestID {
 		return fmt.Errorf("invalid coordinator response identity")
 	}
+	// Return health metadata even on build skew so replacement policy can
+	// verify database compatibility before asking the existing writer to stop.
+	if method == MethodStatus && response.OK && result != nil && len(response.Result) > 0 {
+		if err := json.Unmarshal(response.Result, result); err != nil {
+			return fmt.Errorf("decode coordinator status: %w", err)
+		}
+	}
 	if method != MethodShutdown && method != MethodRuntimeEvent && response.BuildIdentity != buildIdentity {
 		return &CompatibilityError{Kind: "build", Expected: buildIdentity, Actual: response.BuildIdentity}
 	}
@@ -82,6 +89,11 @@ func (c *Client) Call(ctx context.Context, method string, payload any, result an
 	if result != nil && len(response.Result) > 0 {
 		if err := json.Unmarshal(response.Result, result); err != nil {
 			return fmt.Errorf("decode coordinator result: %w", err)
+		}
+		if method != MethodRepositorySource {
+			if err := c.resolveResponseRepositories(ctx, result); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
@@ -191,6 +203,24 @@ func (c *Client) ExecuteManifestCommand(ctx context.Context, command ManifestCom
 func (c *Client) ExecuteManifestCommandWithQueue(ctx context.Context, request ManifestCommandQueueRequest) (ManifestCommandQueueResult, error) {
 	var result ManifestCommandQueueResult
 	err := c.Call(ctx, MethodManifestQueue, request, &result)
+	return result, err
+}
+
+func (c *Client) ListRepositories(ctx context.Context) ([]model.OwnedRepository, error) {
+	var result []model.OwnedRepository
+	err := c.Call(ctx, MethodListRepositories, struct{}{}, &result)
+	return result, err
+}
+
+func (c *Client) RenameRepository(ctx context.Context, command RenameRepositoryCommand) (RenameRepositoryResult, error) {
+	var result RenameRepositoryResult
+	err := c.Call(ctx, MethodRenameRepository, command, &result)
+	return result, err
+}
+
+func (c *Client) RegisterRepository(ctx context.Context, command RegisterRepositoryCommand) (RegisterRepositoryResult, error) {
+	var result RegisterRepositoryResult
+	err := c.Call(ctx, MethodRegisterRepository, command, &result)
 	return result, err
 }
 

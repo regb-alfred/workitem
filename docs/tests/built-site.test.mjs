@@ -13,6 +13,7 @@ const routes = [
   'getting-started/installation',
   'getting-started/quick-start',
   'concepts/work-items',
+  'concepts/repositories',
   'concepts/lifecycle',
   'concepts/workspaces',
   'concepts/agents',

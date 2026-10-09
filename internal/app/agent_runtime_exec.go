@@ -12,6 +12,7 @@ import (
 	agentcore "github.com/regb/workitem/internal/app/core/primaryagent"
 	"github.com/regb/workitem/internal/coordinator"
 	"github.com/regb/workitem/internal/model"
+	"github.com/regb/workitem/skills"
 )
 
 func (a *App) AgentExec(ctx context.Context, itemID, conversationID, runtimeID string, mode agent.Mode) error {
@@ -75,7 +76,7 @@ func (a *App) AgentExec(ctx context.Context, itemID, conversationID, runtimeID s
 		if manifest.PrimaryConversation != nil {
 			format = manifest.PrimaryConversation.Format
 		}
-		request := driverprotocol.LaunchRequest{ProtocolVersion: driverprotocol.Version, Driver: definition.Driver, Agent: agentName, Config: config, Runtime: driverprotocol.Runtime{ID: spec.RuntimeID, WorkItemID: spec.WorkItemID, Mode: driverprotocol.Mode(spec.Mode), CWD: spec.CWD, ControlSocketPath: spec.ControlSocketPath, EventSocketPath: spec.EventSocketPath, LogPath: spec.LogPath}, Conversation: driverprotocol.Conversation{ID: conversationID, Locator: spec.ConversationLocator, Format: format}, Environment: environment}
+		request := driverprotocol.LaunchRequest{ProtocolVersion: driverprotocol.Version, Driver: definition.Driver, Agent: agentName, Config: config, Skills: skills.Bundled(), Runtime: driverprotocol.Runtime{ID: spec.RuntimeID, WorkItemID: spec.WorkItemID, Mode: driverprotocol.Mode(spec.Mode), CWD: spec.CWD, ControlSocketPath: spec.ControlSocketPath, EventSocketPath: spec.EventSocketPath, LogPath: spec.LogPath}, Conversation: driverprotocol.Conversation{ID: conversationID, Locator: spec.ConversationLocator, Format: format}, Environment: environment}
 		runErr := a.RunAgentDriver(ctx, driverPath, driverArgs, request, driverProcessEnvironment(os.Environ()), func(ready driverprotocol.Ready) error {
 			runtime, err := a.Store.LoadAgentRuntime(spec.WorkItemID)
 			if err != nil {

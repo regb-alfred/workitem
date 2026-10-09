@@ -362,9 +362,6 @@ func (s *Service) inspectWorktree(ctx context.Context, m model.Manifest) (*Workt
 }
 
 func expectedBranch(m model.Manifest) string {
-	if m.Checkout.Specification.Kind == model.WorkspaceKindRepositoryHome {
-		return ""
-	}
 	return strings.TrimSpace(m.Checkout.Specification.Branch)
 }
 

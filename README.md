@@ -2,11 +2,11 @@
 
 `wi` is a human-first, productivity-oriented command-line utility for organizing your work items.
 
-For each work item, you get:
+A work item records a title, task description, repository, lifecycle, and history. When work starts, Wi can materialize:
 
-- a Git worktree
-- a selected coding-agent definition and durable primary conversation
-- a tmux session you can attach to
+- a managed Git worktree from an independent registered repository
+- a selected coding agent and durable primary conversation
+- a tmux session for TUI access, or a tmux-independent headless runtime
 
 `wi` automatically tracks which work items need your attention and provides fast switching to actionable ones.
 
@@ -42,8 +42,7 @@ concepts, workflows, and command reference.
 
 `wi` is pre-release software. The command set and stored data may change between
 commits, and only the latest `main` branch is supported. For now, install from
-source with `scripts/install-local`. `wi version` includes the Git commit so a
-local build can be identified precisely.
+source with `scripts/install-local`. `wi version` reports build identity and includes the Git revision when Go provides VCS metadata. Some managed-worktree builds report `devel` without a revision.
 
 Do not rely on `wi` for production use or as the only copy of important work.
 Bugs may corrupt or delete work-item data, worktrees, or uncommitted files. Keep
@@ -60,12 +59,17 @@ cd workitem
 scripts/install-local
 ```
 
-Create backlog work and start it interactively:
+Register a repository, then create and start work from a task description:
 
 ```bash
-cd /path/to/git/repository
-wi start --new "Add API retries"
+wi repo add project --from /path/to/git/repository --branch main
+wi new --title "Add API retries" --repo project --desc-file task.md --start
+wi switch add-api-retries
 ```
+
+`--title` is mandatory; Wi derives the slug unless `--slug` is supplied. Omit `--start` to file backlog work only. With `--start`, a configurable message asks the agent to read the description using `wi show`. `--prompt` overrides that message, never the description. Resume never sends a prompt.
+
+Inside a Wi item, repository selection is implicit. Outside one, pass a registered `--repo NAME`. External source checkouts are onboarding inputs, not ongoing dependencies. See [Repositories](https://regb.github.io/workitem/concepts/repositories/) and the [Quick start](https://regb.github.io/workitem/getting-started/quick-start/).
 
 Inspect, review, integrate, and archive the work:
 
@@ -89,30 +93,11 @@ Use `wi help <command>` for current flags and safety rules.
 - tmux for interactive TUI runtimes
 - fzf for the optional `wi switch` picker
 
-Headless Headless runtimes do not require tmux or fzf.
+Headless runtimes do not require tmux or fzf.
 
 ## Tmux bindings
 
-`wi` is designed primarily to work with `tmux`. Bind the commands you want
-directly in `~/.tmux.conf`, we recommend the following:
-
-```tmux
-bind-key O display-popup -EE \
-  -d '#{pane_current_path}' -w 90% -h 80% -T 'wi work items' \
-  'WI_TMUX_CLIENT="#{client_name}" wi switch'
-
-# Stay silent on success; -E opens stderr in tmux view mode on failure.
-bind-key N run-shell -b -E -c '#{pane_current_path}' \
-  'WI_TMUX_CLIENT="#{client_name}" wi next >/dev/null'
-bind-key P run-shell -b -E -c '#{pane_current_path}' \
-  'WI_TMUX_CLIENT="#{client_name}" wi next --defer >/dev/null'
-bind-key W run-shell -b -E -c '#{pane_current_path}' \
-  'WI_TMUX_CLIENT="#{client_name}" wi next --wait >/dev/null'
-bind-key A run-shell -b -E -c '#{pane_current_path}' \
-  'WI_TMUX_CLIENT="#{client_name}" wi next --archive >/dev/null'
-```
-
-`wi` loads `WI_LIST_LABELS` and `WI_ITEM_DEFAULT_LABELS` from an allowed `.envrc` in the binding's working directory. Do not wrap these commands with `direnv exec`.
+The [tmux guide](https://regb.github.io/workitem/guides/tmux/) is the canonical binding recipe for navigation, the picker, and the optional prompt-only creation popup. The popup uses Pi to generate a title before calling Wi; title generation is not part of `wi new`.
 
 ## Development
 

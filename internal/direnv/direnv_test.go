@@ -116,7 +116,9 @@ func TestEnvironmentReloadsWatchedSourceWhenCallerHasPreviouslyLoadedEnvironment
 	for key, value := range loaded {
 		command.Env = append(command.Env, key+"="+value)
 	}
-	command.Env = append(command.Env, "WI_DIRENV_HELPER=1", "WI_DIRENV_HELPER_DIR="+dir, "WI_DIRENV_HELPER_PATH="+path)
+	// This child deliberately tests an already-loaded direnv environment. Keep
+	// the parent test namespace marker so TestMain does not scrub that fixture.
+	command.Env = append(command.Env, "WI_TEST_PROCESS_ROOT="+os.Getenv("WI_TEST_PROCESS_ROOT"), "WI_DIRENV_HELPER=1", "WI_DIRENV_HELPER_DIR="+dir, "WI_DIRENV_HELPER_PATH="+path)
 	output, err := command.CombinedOutput()
 	if err != nil || strings.TrimSpace(string(output)) != "fresh" {
 		t.Fatalf("reloaded environment output=%q err=%v", output, err)
