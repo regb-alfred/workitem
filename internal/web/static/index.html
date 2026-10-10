@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Wi</title><link rel="stylesheet" href="/style.css"><script src="/app.js" defer></script>
+</head>
+<body>
+  <header><button id="list">Wi / List</button><h1 id="title">Work items</h1><button id="new">New</button><button id="attention" hidden></button><button id="next">Next</button><button id="archive" hidden>Archive</button></header>
+  <p id="notice" role="status"></p>
+  <div id="started-toast" role="status" aria-live="polite" aria-atomic="true" hidden></div>
+  <main id="items">
+    <div class="list-toolbar">
+      <span id="capacity" class="meta"></span>
+      <details id="project-filter">
+        <summary id="project-summary">Projects · All projects</summary>
+        <fieldset><legend>Filter projects</legend>
+          <div class="filter-actions"><button id="projects-all" type="button">Select all</button><button id="projects-none" type="button">Clear all</button></div>
+          <div id="project-options"></div>
+        </fieldset>
+      </details>
+    </div>
+    <div id="work-list"></div>
+  </main>
+  <section id="new-page" hidden aria-label="New conversation">
+    <form id="new-form">
+      <h2>What do you want to work on?</h2>
+      <div class="launch-repository">
+        <label for="new-project" class="sr-only">Repository</label>
+        <select id="new-project" required aria-describedby="new-project-error"><option value="">Choose a repo</option></select>
+        <p id="new-project-error" role="alert" hidden>Repository is required.</p>
+      </div>
+      <div class="launch-composer">
+        <label for="new-prompt" class="sr-only">Message</label>
+        <textarea id="new-prompt" required rows="4" placeholder="Ask Pi to work on anything…"></textarea>
+        <div class="launch-controls">
+          <button id="create" type="submit" aria-label="Send" title="Send" disabled>↑</button>
+        </div>
+      </div>
+      <p class="launch-hint">Send it and keep going. Pi works in the background.</p>
+      <div id="creation-result" role="status"></div>
+      <div id="launch-updates" aria-live="polite"></div>
+    </form>
+  </section>
+  <section id="chat-loading" hidden role="status" aria-label="Starting conversation" aria-live="polite" aria-busy="true">
+    <div class="loading-wheel" aria-hidden="true"></div><span class="sr-only">Starting conversation</span>
+  </section>
+  <section id="chat" hidden aria-label="Primary-agent chat">
+    <div id="conversation">
+      <div id="owner" class="meta"></div>
+      <div id="history" aria-label="Conversation history"></div><div id="live" aria-live="polite"></div>
+      <form id="composer"><label for="message">Message</label><textarea id="message" rows="3" placeholder="Write to the existing primary agent"></textarea><div class="actions"><select id="delivery" aria-label="Message delivery"><option value="prompt">Send if idle</option><option value="follow_up">Queue follow-up</option></select><button id="send" type="submit">Send</button></div></form>
+    </div>
+    <aside id="ticket" aria-label="Ticket details">
+      <h2>Ticket details</h2><h3 id="ticket-title"></h3>
+      <div id="ticket-status"></div>
+      <section class="description"><h3>Description</h3><div id="ticket-description"></div></section>
+      <dl id="ticket-info"></dl>
+      <section><h3>Labels</h3><div id="ticket-labels"></div></section>
+    </aside>
+  </section>
+</body>
+</html>

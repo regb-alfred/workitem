@@ -19,11 +19,12 @@ import (
 )
 
 const (
-	CommandLabelsAdd    = "item.labels.add"
-	CommandLabelsRemove = "item.labels.remove"
-	CommandDeepWorkSet  = "item.deep_work.set"
-	CommandStateSet     = "item.state.set"
-	CommandTitleSet     = "item.title.set"
+	CommandLabelsAdd      = "item.labels.add"
+	CommandLabelsRemove   = "item.labels.remove"
+	CommandDeepWorkSet    = "item.deep_work.set"
+	CommandStateSet       = "item.state.set"
+	CommandTitleSet       = "item.title.set"
+	CommandNamingFinalize = "item.naming.finalize"
 )
 
 type ManifestCommand struct {
@@ -297,6 +298,24 @@ func applyManifestCommand(command ManifestCommand, manifest *model.Manifest, all
 		pending = append(pending, commandEvent{Type: eventType, Payload: payload})
 	}
 	switch command.Type {
+	case CommandNamingFinalize:
+		title := strings.TrimSpace(command.Title)
+		if title == "" || len(title) > 512 || !utf8.ValidString(title) || strings.IndexFunc(title, unicode.IsControl) >= 0 {
+			return nil, false, fmt.Errorf("a single-line title of up to 512 bytes is required")
+		}
+		if (manifest.State != model.StateWorking && manifest.State != model.StateBacklog) || manifest.Checkout.Specification.Kind != model.WorkspaceKindManagedSlot || manifest.Checkout.Claim != nil || manifest.Checkout.EverMaterialized() || manifest.PrimaryConversation != nil || manifest.Checkout.Specification.Branch != model.ItemBranchName(manifest.Slug, manifest.ID) {
+			return nil, false, fmt.Errorf("naming can only be finalized before a managed checkout or conversation is created")
+		}
+		slug, err := uniqueCanonicalSlug(model.Slugify(title), manifest.ID, allManifests)
+		if err != nil {
+			return nil, false, err
+		}
+		branch := model.ItemBranchName(slug, manifest.ID)
+		if title == manifest.Title && slug == manifest.Slug && branch == manifest.Checkout.Specification.Branch {
+			return pending, false, nil
+		}
+		manifest.Title, manifest.Slug, manifest.Checkout.Specification.Branch = title, slug, branch
+		appendEvent("work_item.naming_finalized", map[string]any{"title": title, "slug": slug, "branch": branch})
 	case CommandTitleSet:
 		title := strings.TrimSpace(command.Title)
 		if title == "" || len(title) > 512 || !utf8.ValidString(title) || strings.IndexFunc(title, unicode.IsControl) >= 0 {
