@@ -19,9 +19,21 @@ func (a *App) WorkItemState(ctx context.Context, opts ResolveOptions) (WorkItemS
 // SetWorkItemState changes durable lifecycle state only. It intentionally does
 // not create, enter, inspect, close, or release workspace resources.
 func (a *App) SetWorkItemState(ctx context.Context, opts ResolveOptions, target string, force bool) (StateTransitionResult, error) {
+	m, operation, err := a.lockItemOperation(ctx, opts)
+	if err != nil {
+		return StateTransitionResult{}, err
+	}
+	defer operation.Release()
+	opts.Selector = m.ID
 	return a.itemService().SetState(ctx, opts, target, force, a.DeepWorkConfig.MaxActive)
 }
 
 func (a *App) transitionState(ctx context.Context, opts ResolveOptions, target, eventType string, force bool) (StateTransitionResult, error) {
+	m, operation, err := a.lockItemOperation(ctx, opts)
+	if err != nil {
+		return StateTransitionResult{}, err
+	}
+	defer operation.Release()
+	opts.Selector = m.ID
 	return a.itemService().TransitionState(ctx, opts, target, eventType, force, a.DeepWorkConfig.MaxActive)
 }

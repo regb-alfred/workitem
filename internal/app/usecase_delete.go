@@ -46,7 +46,7 @@ func (a *App) DeleteWorkItems(ctx context.Context, opts DeleteWorkItemsOptions) 
 		}
 		items = append(items, manifest)
 	}
-	// Stable per-item locks live outside item directories. Holding every lock
+	// Operation locks precede store locks and live outside item directories. Holding every lock
 	// across reload, validation, and removal prevents restore/start/mutation from
 	// racing a bulk deletion after its safety checks.
 	sort.Slice(items, func(i, j int) bool { return items[i].ID < items[j].ID })
@@ -56,6 +56,13 @@ func (a *App) DeleteWorkItems(ctx context.Context, opts DeleteWorkItemsOptions) 
 			_ = locks[i].Release()
 		}
 	}()
+	for _, manifest := range items {
+		locked, err := itemlock.AcquireOperation(ctx, a.Store.LockPath(manifest.ID))
+		if err != nil {
+			return DeleteWorkItemsResult{}, fmt.Errorf("lock work item %s operation for deletion: %w", manifest.ID, err)
+		}
+		locks = append(locks, locked)
+	}
 	for _, manifest := range items {
 		locked, err := itemlock.Acquire(ctx, a.Store.LockPath(manifest.ID))
 		if err != nil {

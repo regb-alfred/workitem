@@ -11,10 +11,11 @@ import (
 )
 
 func (a *App) Shelve(ctx context.Context, opts ResolveOptions, force bool) (StateTransitionResult, error) {
-	m, err := a.ResolveItem(ctx, opts)
+	m, operation, err := a.lockItemOperation(ctx, opts)
 	if err != nil {
 		return StateTransitionResult{}, err
 	}
+	defer operation.Release()
 	if m.State == model.StateArchived {
 		return StateTransitionResult{}, fmt.Errorf("work item %s is archived; run `wi state set backlog --item %s` before shelving it", m.ID, m.ID)
 	}
@@ -44,17 +45,18 @@ func (a *App) Shelve(ctx context.Context, opts ResolveOptions, force bool) (Stat
 }
 
 func (a *App) Archive(ctx context.Context, opts ResolveOptions, force bool) (StateTransitionResult, error) {
-	m, err := a.ResolveItem(ctx, opts)
+	m, operation, err := a.lockItemOperation(ctx, opts)
 	if err != nil {
 		return StateTransitionResult{}, err
 	}
+	defer operation.Release()
 	prevState := m.State
 	if m.State == model.StateArchived {
 		return StateTransitionResult{WorkItemID: m.ID, PreviousState: prevState, State: m.State, Changed: false, Manifest: m}, nil
 	}
 	warnings, err := a.prepareArchive(ctx, m, opts, force)
 	if err != nil {
-		return StateTransitionResult{}, err
+		return StateTransitionResult{WorkItemID: m.ID, PreviousState: prevState, State: m.State, Manifest: m, Warnings: warnings}, err
 	}
 	return a.finishArchive(ctx, m, prevState, opts.Env, force, warnings)
 }
@@ -78,8 +80,9 @@ func (a *App) finishArchive(ctx context.Context, m model.Manifest, prevState str
 		m, workspaceWarnings, workspaceChanged, err = a.closeWorkspace(ctx, m, force, env)
 	}
 	if err != nil {
-		return StateTransitionResult{}, err
+		return StateTransitionResult{WorkItemID: m.ID, PreviousState: prevState, State: m.State, Manifest: m, Warnings: append(warnings, workspaceWarnings...)}, fmt.Errorf("archive not committed; external resources may already have changed: %w", err)
 	}
+	retained := m
 	now := a.now()
 	previousSlug := m.Slug
 	m.State = model.StateArchived
@@ -87,7 +90,15 @@ func (a *App) finishArchive(ctx context.Context, m model.Manifest, prevState str
 	m.StateChangedAt = now
 	m.UpdatedAt = now
 	if err := a.Store.SaveManifest(ctx, m); err != nil {
-		return StateTransitionResult{}, err
+		warnings = append(warnings, workspaceWarnings...)
+		// Saving can fail before commit or after a lost acknowledgement. Report
+		// canonical state, not the locally released claim or assumed lifecycle.
+		if current, inspectErr := a.Store.LoadManifest(m.ID); inspectErr == nil {
+			retained = current
+		} else {
+			warnings = append(warnings, "could not refresh retained archive state: "+inspectErr.Error())
+		}
+		return StateTransitionResult{WorkItemID: m.ID, PreviousState: prevState, State: retained.State, Changed: retained.State != prevState, Manifest: retained, Warnings: warnings}, fmt.Errorf("workspace cleanup completed, but archive state could not be saved: %w", err)
 	}
 	_ = a.Store.AppendEvent(ctx, m.ID, model.NewEvent(now, "work_item.archived", "user", map[string]any{"previous_state": prevState, "new_state": m.State, "previous_slug": previousSlug, "workspace_closed": workspaceChanged, "forced": force}))
 	warnings = append(warnings, workspaceWarnings...)
@@ -150,11 +161,11 @@ func (a *App) stopRuntimeForArchive(ctx context.Context, m model.Manifest, opts 
 	if !a.primaryAgentService().ObserveOwnership(runtime).ProcessAlive {
 		return nil, nil
 	}
-	stopped, err := a.StopAgentRuntime(ctx, ResolveOptions{Selector: m.ID, CWD: opts.CWD, Env: opts.Env}, force)
-	if err != nil {
-		return nil, fmt.Errorf("stop agent runtime before archiving: %w", err)
-	}
+	stopped, err := a.primaryAgentService().Stop(ctx, ResolveOptions{Selector: m.ID, CWD: opts.CWD, Env: opts.Env}, force)
 	warnings := append([]string{}, stopped.Warnings...)
+	if err != nil {
+		return warnings, fmt.Errorf("stop agent runtime before archiving: %w", err)
+	}
 	if stopped.Changed {
 		warnings = append(warnings, "requested agent runtime shutdown")
 	}
@@ -185,10 +196,19 @@ func (a *App) closeWorkspace(ctx context.Context, m model.Manifest, force bool, 
 	warnings := []string{}
 	changed := false
 	tmuxSession := strings.TrimSpace(m.TerminalSessionName())
-	if runtime, err := a.Store.LoadAgentRuntime(m.ID); err != nil {
+	runtime, err := a.Store.LoadAgentRuntime(m.ID)
+	if err != nil {
 		return m, warnings, changed, err
-	} else if a.primaryAgentService().ObserveOwnership(runtime).ProcessAlive {
+	}
+	if a.primaryAgentService().ObserveOwnership(runtime).ProcessAlive {
 		return m, warnings, changed, fmt.Errorf("agent runtime %s is still active; run `wi agent runtime stop --item %s`, wait for it to exit, then retry", runtime.ID, m.ID)
+	}
+	terminal, err := a.Store.LoadTerminalRuntime(m.ID)
+	if err != nil {
+		return m, warnings, changed, err
+	}
+	if terminal == nil && (runtime == nil || runtime.Mode != "tui") {
+		tmuxSession = ""
 	}
 	if err := a.ensureCheckoutReleasable(ctx, m); err != nil {
 		return m, warnings, changed, err

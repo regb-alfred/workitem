@@ -10,16 +10,24 @@ import (
 
 type AgentControlOptions struct {
 	ResolveOptions
-	CommandType string
-	Message     string
-	Actor       string
-	RequestID   string
+	CommandType       string
+	Message           string
+	Actor             string
+	RequestID         string
+	ExpectedRuntimeID string
+	RequireIdle       bool
 }
 
 type AgentControlResult = agentcore.ControlResult
 
 func (a *App) AgentControl(ctx context.Context, opts AgentControlOptions) (AgentControlResult, error) {
-	return a.primaryAgentService().Control(ctx, agentcore.ControlOptions{ResolveOptions: contract.ResolveOptions(opts.ResolveOptions), CommandType: opts.CommandType, Message: opts.Message, Actor: opts.Actor, RequestID: opts.RequestID})
+	m, operation, err := a.lockItemOperation(ctx, opts.ResolveOptions)
+	if err != nil {
+		return AgentControlResult{}, err
+	}
+	defer operation.Release()
+	opts.Selector = m.ID
+	return a.primaryAgentService().Control(ctx, agentcore.ControlOptions{ResolveOptions: contract.ResolveOptions(opts.ResolveOptions), CommandType: opts.CommandType, Message: opts.Message, Actor: opts.Actor, RequestID: opts.RequestID, ExpectedRuntimeID: opts.ExpectedRuntimeID, RequireIdle: opts.RequireIdle})
 }
 
 func (a *App) runtimeControlSocketPath(itemID string, runtime *model.AgentRuntime) string {

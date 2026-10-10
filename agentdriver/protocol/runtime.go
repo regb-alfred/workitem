@@ -25,6 +25,7 @@ type ControlCommand struct {
 	Type            string    `json:"type"`
 	Actor           string    `json:"actor,omitempty"`
 	Message         string    `json:"message,omitempty"`
+	RequireIdle     bool      `json:"require_idle,omitempty"`
 	CreatedAt       time.Time `json:"created_at"`
 }
 

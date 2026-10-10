@@ -13,14 +13,16 @@ const (
 // AgentRuntime records the rebuildable local process/control-plane handles for
 // the primary agent. The durable conversation identity remains in the manifest.
 type RuntimeCapabilities struct {
-	NativeTUI bool `json:"native_tui"`
-	Headless  bool `json:"headless"`
-	Streaming bool `json:"streaming"`
-	Prompt    bool `json:"prompt"`
-	Steering  bool `json:"steering"`
-	FollowUp  bool `json:"follow_up"`
-	Cancel    bool `json:"cancel"`
-	Monitor   bool `json:"monitor"`
+	LiveContent bool `json:"live_content,omitempty"`
+	IdleGuard   bool `json:"idle_guard,omitempty"`
+	NativeTUI   bool `json:"native_tui"`
+	Headless    bool `json:"headless"`
+	Streaming   bool `json:"streaming"`
+	Prompt      bool `json:"prompt"`
+	Steering    bool `json:"steering"`
+	FollowUp    bool `json:"follow_up"`
+	Cancel      bool `json:"cancel"`
+	Monitor     bool `json:"monitor"`
 }
 
 type AgentRuntime struct {

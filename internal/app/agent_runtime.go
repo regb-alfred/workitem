@@ -32,12 +32,26 @@ type AgentRuntimeStatusResult struct {
 type StopAgentRuntimeResult = agentcore.StopResult
 
 func (a *App) EnsureAgentRuntime(ctx context.Context, opts ResolveOptions, mode agent.Mode) (EnsureAgentRuntimeResult, error) {
+	return a.ensureAgentRuntime(ctx, opts, mode, false)
+}
+
+// EnsureNewAgentRuntime applies queued startup only to a fresh working item.
+// The guard is checked under the same operation lock as workspace/runtime creation.
+func (a *App) EnsureNewAgentRuntime(ctx context.Context, opts ResolveOptions, mode agent.Mode) (EnsureAgentRuntimeResult, error) {
+	return a.ensureAgentRuntime(ctx, opts, mode, true)
+}
+
+func (a *App) ensureAgentRuntime(ctx context.Context, opts ResolveOptions, mode agent.Mode, fresh bool) (EnsureAgentRuntimeResult, error) {
 	if !mode.Valid() {
 		return EnsureAgentRuntimeResult{}, fmt.Errorf("invalid agent runtime mode %q", mode)
 	}
-	m, err := a.ResolveItem(ctx, opts)
+	m, operation, err := a.lockItemOperation(ctx, opts)
 	if err != nil {
 		return EnsureAgentRuntimeResult{}, err
+	}
+	defer operation.Release()
+	if fresh && (m.State != model.StateWorking || m.PrimaryConversation != nil) {
+		return EnsureAgentRuntimeResult{}, fmt.Errorf("work item %s changed while queued; startup was not applied", m.ID)
 	}
 	if m.State == model.StateArchived {
 		return EnsureAgentRuntimeResult{}, fmt.Errorf("work item %s is archived; set it to backlog before ensuring an agent runtime", m.ID)
@@ -78,7 +92,7 @@ func (a *App) EnsureAgentRuntime(ctx context.Context, opts ResolveOptions, mode 
 	}
 	warnings = append(warnings, conversationWarnings...)
 	if mode == agent.ModeTUI {
-		runtimeEnv, scrub, environmentWarnings, err := a.agentRuntimeEnvironment(ctx, m)
+		runtimeEnv, scrub, environmentWarnings, err := a.agentRuntimeEnvironment(ctx, m, mode)
 		warnings = append(warnings, environmentWarnings...)
 		if err != nil {
 			return EnsureAgentRuntimeResult{}, err
@@ -108,7 +122,7 @@ func (a *App) EnsureAgentRuntime(ctx context.Context, opts ResolveOptions, mode 
 	if err := a.ensureConversationNotRunning(m, session); err != nil {
 		return EnsureAgentRuntimeResult{}, err
 	}
-	runtimeEnv, _, environmentWarnings, err := a.agentRuntimeEnvironment(ctx, m)
+	runtimeEnv, _, environmentWarnings, err := a.agentRuntimeEnvironment(ctx, m, mode)
 	warnings = append(warnings, environmentWarnings...)
 	if err != nil {
 		return EnsureAgentRuntimeResult{}, err
@@ -207,6 +221,12 @@ func (a *App) prepareAgentRuntime(ctx context.Context, m model.Manifest, session
 }
 
 func (a *App) StopAgentRuntime(ctx context.Context, opts ResolveOptions, force bool) (StopAgentRuntimeResult, error) {
+	m, operation, err := a.lockItemOperation(ctx, opts)
+	if err != nil {
+		return StopAgentRuntimeResult{}, err
+	}
+	defer operation.Release()
+	opts.Selector = m.ID
 	return a.primaryAgentService().Stop(ctx, opts, force)
 }
 

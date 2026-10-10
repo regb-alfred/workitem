@@ -122,7 +122,7 @@ func (c Client) Exec(ctx context.Context, sessionPath, cwd string, env map[strin
 
 func (c Client) ExecMode(ctx context.Context, spec ExecSpec) error {
 	bridgePath := spec.BridgePath
-	if spec.Mode == agent.ModeTUI && bridgePath == "" {
+	if bridgePath == "" {
 		var err error
 		bridgePath, err = BridgePath()
 		if err != nil {

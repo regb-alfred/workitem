@@ -18,10 +18,12 @@ import (
 
 type ControlOptions struct {
 	contract.ResolveOptions
-	CommandType string
-	Message     string
-	Actor       string
-	RequestID   string
+	CommandType       string
+	Message           string
+	Actor             string
+	RequestID         string
+	ExpectedRuntimeID string
+	RequireIdle       bool
 }
 
 type ControlResult struct {
@@ -36,6 +38,10 @@ func (s *Service) Control(ctx context.Context, opts ControlOptions) (ControlResu
 	if err != nil {
 		return ControlResult{}, err
 	}
+	commandType := strings.TrimSpace(opts.CommandType)
+	if m.State == model.StateArchived && commandType != agent.CommandAbort && commandType != agent.CommandShutdown {
+		return ControlResult{}, fmt.Errorf("archived conversations are read-only")
+	}
 	runtime, err := s.store.LoadAgentRuntime(m.ID)
 	if err != nil {
 		return ControlResult{}, err
@@ -43,7 +49,12 @@ func (s *Service) Control(ctx context.Context, opts ControlOptions) (ControlResu
 	if !s.ObserveOwnership(runtime).ControlAvailable {
 		return ControlResult{}, fmt.Errorf("agent runtime control channel is not active; restart the agent runtime")
 	}
-	commandType := strings.TrimSpace(opts.CommandType)
+	if opts.ExpectedRuntimeID != "" && runtime.ID != opts.ExpectedRuntimeID {
+		return ControlResult{}, fmt.Errorf("runtime owner changed; reload runtime status before submitting")
+	}
+	if opts.RequireIdle && !runtime.Capabilities.IdleGuard {
+		return ControlResult{}, fmt.Errorf("agent driver does not support idle-only control")
+	}
 	// Stopping a stale owner must remain possible, but it cannot accept new work.
 	if commandType != agent.CommandAbort && commandType != agent.CommandShutdown && runtime.WorkspaceClaimID != "" {
 		claim := m.Checkout.Claim
@@ -74,7 +85,7 @@ func (s *Service) Control(ctx context.Context, opts ControlOptions) (ControlResu
 	if actor == "" {
 		actor = "operator"
 	}
-	command := agent.ControlCommand{ID: commandID, RequestID: strings.TrimSpace(opts.RequestID), Type: commandType, Actor: actor, Message: strings.TrimSpace(opts.Message), CreatedAt: s.now()}
+	command := agent.ControlCommand{ID: commandID, RequestID: strings.TrimSpace(opts.RequestID), Type: commandType, Actor: actor, Message: strings.TrimSpace(opts.Message), CreatedAt: s.now(), RequireIdle: opts.RequireIdle}
 	if err := s.SubmitControl(ctx, m.ID, *runtime, command); err != nil {
 		return ControlResult{}, err
 	}

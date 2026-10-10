@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/regb/workitem/internal/agent"
 	agentcore "github.com/regb/workitem/internal/app/core/primaryagent"
 	direnv "github.com/regb/workitem/internal/direnv"
 	"github.com/regb/workitem/internal/model"
@@ -23,9 +24,9 @@ func exactRuntimeEnvironment(environment map[string]string) []string {
 // session; decoding DIRENV_DIFF (from both the server and the invoking pane)
 // identifies exactly those variables. Without tmux (headless), the process
 // environment is the only sensible base.
-func (a *App) direnvBaseEnvironment(ctx context.Context) (map[string]string, []string) {
+func (a *App) direnvBaseEnvironment(ctx context.Context, mode agent.Mode) (map[string]string, []string) {
 	var global map[string]string
-	if a.Tmux != nil {
+	if mode == agent.ModeTUI && a.Tmux != nil {
 		if candidate, err := a.Tmux.GlobalEnvironment(ctx); err == nil && len(candidate) > 0 {
 			global = candidate
 		}
@@ -39,7 +40,7 @@ func (a *App) direnvBaseEnvironment(ctx context.Context) (map[string]string, []s
 	}
 	scrub := make([]string, 0, len(managed)+8)
 	for key := range global {
-		if key == "TMUX" || key == "TMUX_PANE" || key == "DIRENV_DIFF" || strings.HasPrefix(key, "DIRENV_") || strings.HasPrefix(key, "WI_") {
+		if key == "TMUX" || key == "TMUX_PANE" || key == "PI_SESSION_ID" || key == "PI_CODING_AGENT_SESSION_DIR" || key == "DIRENV_DIFF" || strings.HasPrefix(key, "DIRENV_") || strings.HasPrefix(key, "WI_") {
 			scrub = append(scrub, key)
 			delete(global, key)
 			continue
@@ -79,8 +80,8 @@ func envFromSlice(entries []string) map[string]string {
 // agentRuntimeEnvironment returns the complete environment for an item runtime.
 // Launchers must use it as a replacement, never as an overlay on their own
 // process environment.
-func (a *App) agentRuntimeEnvironment(ctx context.Context, m model.Manifest) (map[string]string, []string, []string, error) {
-	base, scrub := a.direnvBaseEnvironment(ctx)
+func (a *App) agentRuntimeEnvironment(ctx context.Context, m model.Manifest, mode agent.Mode) (map[string]string, []string, []string, error) {
+	base, scrub := a.direnvBaseEnvironment(ctx, mode)
 	overrides, warnings, err := agentcore.RuntimeEnvironment(ctx, a.Direnv, m, a.direnvAutoTrusts(m.Repository), a.ApproveDirenv, base)
 	if err != nil {
 		return nil, scrub, warnings, err
@@ -102,7 +103,7 @@ func (a *App) agentRuntimeEnvironment(ctx context.Context, m model.Manifest) (ma
 			}
 		}
 	}
-	if a.Tmux != nil {
+	if mode == agent.ModeTUI && a.Tmux != nil {
 		if current, inspectErr := a.Tmux.SessionEnvironment(ctx, m.TerminalSessionName()); inspectErr == nil {
 			remove := make(map[string]bool, len(scrub)+len(current))
 			for _, key := range scrub {

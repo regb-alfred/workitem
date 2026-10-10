@@ -17,6 +17,12 @@ type FileLock struct {
 	file *os.File
 }
 
+// AcquireOperation serializes external-resource use cases separately from the
+// short store/native-content lock. Always acquire this lock first.
+func AcquireOperation(ctx context.Context, itemLockPath string) (*FileLock, error) {
+	return Acquire(ctx, itemLockPath+".operation")
+}
+
 func Acquire(ctx context.Context, path string) (*FileLock, error) {
 	if ctx == nil {
 		ctx = context.Background()

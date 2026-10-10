@@ -6,12 +6,15 @@ import (
 )
 
 const (
-	OperationLaunch              = "launch"
-	OperationConversationCreate  = "conversation.create"
-	OperationConversationCWD     = "conversation.cwd"
-	OperationConversationFork    = "conversation.fork"
-	OperationConversationObserve = "conversation.observe"
-	OperationConversationDecode  = "conversation.decode"
+	OperationLaunch                   = "launch"
+	OperationConversationCreate       = "conversation.create"
+	OperationConversationCWD          = "conversation.cwd"
+	OperationConversationFork         = "conversation.fork"
+	OperationConversationObserve      = "conversation.observe"
+	OperationConversationDecode       = "conversation.decode"
+	OperationConversationHistory      = "conversation.history"
+	OperationConversationCapabilities = "conversation.capabilities"
+	OperationConversationTitle        = "conversation.title"
 )
 
 type Request struct {
@@ -32,6 +35,8 @@ type Response struct {
 }
 
 type ConversationRequest struct {
+	Prompt       string       `json:"prompt,omitempty"`
+	LeafID       string       `json:"leaf_id,omitempty"`
 	ID           string       `json:"id,omitempty"`
 	Conversation Conversation `json:"conversation,omitempty"`
 	Path         string       `json:"path,omitempty"`
@@ -46,13 +51,23 @@ type ConversationRequest struct {
 	Lines [][]byte `json:"lines,omitempty"`
 }
 
+// ConversationCapabilities describes optional stateless operations. It can be
+// queried without creating a conversation or launching the backend agent.
+type ConversationCapabilities struct {
+	History bool `json:"history"`
+	Title   bool `json:"title"`
+}
+
 type ConversationResponse struct {
-	Conversation Conversation             `json:"conversation,omitempty"`
-	CWD          string                   `json:"cwd,omitempty"`
-	Observation  *ConversationObservation `json:"observation,omitempty"`
-	Facts        []ConversationFact       `json:"facts,omitempty"`
-	Decoded      []bool                   `json:"decoded,omitempty"`
-	Warnings     []string                 `json:"warnings,omitempty"`
+	Capabilities *ConversationCapabilities `json:"capabilities,omitempty"`
+	Title        string                    `json:"title,omitempty"`
+	History      *History                  `json:"history,omitempty"`
+	Conversation Conversation              `json:"conversation,omitempty"`
+	CWD          string                    `json:"cwd,omitempty"`
+	Observation  *ConversationObservation  `json:"observation,omitempty"`
+	Facts        []ConversationFact        `json:"facts,omitempty"`
+	Decoded      []bool                    `json:"decoded,omitempty"`
+	Warnings     []string                  `json:"warnings,omitempty"`
 }
 
 type ConversationObservation struct {

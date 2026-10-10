@@ -1,9 +1,12 @@
-import { chmodSync, unlinkSync } from "node:fs";
-import { randomUUID } from "node:crypto";
+import { chmodSync, unlinkSync, writeSync } from "node:fs";
+import { createHash, randomUUID } from "node:crypto";
+import { basename, dirname, join } from "node:path";
 import { createConnection, createServer, type Server } from "node:net";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 
 const protocolVersion = 1;
+const contentVersion = 1;
+const maxContentBytes = 256 * 1024;
 
 interface ControlCommand {
   protocol_version: number;
@@ -15,6 +18,7 @@ interface ControlCommand {
   actor?: string;
   message?: string;
   created_at: string;
+  require_idle?: boolean;
 }
 
 function textFromContent(content: unknown): string {
@@ -35,8 +39,49 @@ export default function wiBridge(pi: ExtensionAPI) {
   const eventSocketPath = process.env.WI_AGENT_EVENT_SOCKET ?? "";
   if (!workItemId || !runtimeId || !controlSocketPath || !eventSocketPath) return;
 
+  // Headless control is transported through RPC, but the idle precondition
+  // must be checked in Pi's own event loop, not against delayed host events.
+  if (mode === "headless") {
+    pi.registerCommand("wi-control-idle", {
+      description: "Internal wi idle-only runtime control",
+      handler: async (args, ctx) => {
+        const command = JSON.parse(Buffer.from(args, "base64").toString("utf8")) as ControlCommand;
+        // Pi reports slash commands as handled even when a handler throws.
+        // Send a separate private result; it is never native conversation content.
+        // RPC redirects ordinary stdout writes to diagnostics. This driver-owned
+        // record uses fd 1 directly, keeping it in the native RPC transport.
+        const result = (success: boolean, error?: string) => writeSync(1, JSON.stringify({
+          type: "wi_control_result", id: command.id, runtime_id: runtimeId,
+          work_item_id: workItemId, success, error,
+        }) + "\n");
+        try {
+          if (!command.id || command.runtime_id !== runtimeId || command.work_item_id !== workItemId) throw new Error("control owner mismatch");
+          if (command.protocol_version !== protocolVersion || !command.require_idle) throw new Error("invalid idle-only control");
+          if (!ctx.isIdle() || ctx.hasPendingMessages()) throw new Error("agent became busy; operation refused without interrupting the turn");
+          switch (command.type) {
+            case "shutdown": ctx.shutdown(); break;
+            case "abort": ctx.abort(); break;
+            default: throw new Error("unsupported idle-only control");
+          }
+          result(true);
+        } catch (error) {
+          result(false, error instanceof Error ? error.message : String(error));
+        }
+      },
+    });
+    return;
+  }
+
   let context: ExtensionContext | undefined;
+  let submittedWork = false;
   let controlServer: Server | undefined;
+  let contentServer: Server | undefined;
+  let ownsContentSocket = false;
+  const contentPath = join(dirname(controlSocketPath), createHash("sha256").update(`content:${basename(controlSocketPath)}`).digest("hex").slice(0, 16) + ".sock");
+  let contentSequence = 0;
+  let contentText = "";
+  let contentTruncated = false;
+  let contentActivity = "";
   let currentRequestId = "";
   const handled = new Set<string>();
   const runtimeNonce = randomUUID();
@@ -139,6 +184,21 @@ export default function wiBridge(pi: ExtensionAPI) {
       request_id: currentRequestId || undefined,
       ...fields,
     };
+    contentSequence++;
+    if (type === "message.started") { contentText = ""; contentTruncated = false; contentActivity = "Assistant responding"; }
+    if (type === "message.delta" && !contentTruncated) {
+      const bytes = Buffer.from(contentText + String(fields.text ?? ""), "utf8");
+      if (bytes.length > maxContentBytes) {
+        let end = maxContentBytes;
+        while (end > 0 && (bytes[end] & 0xc0) === 0x80) end--;
+        contentText = bytes.subarray(0, end).toString("utf8");
+        contentTruncated = true;
+      } else contentText = bytes.toString("utf8");
+      contentActivity = "Assistant responding";
+    }
+    if (type === "message.completed") { contentText = ""; contentTruncated = false; contentActivity = "Message saved"; }
+    if (type === "tool.started") contentActivity = `Tool: ${String(fields.tool_name ?? "")}`;
+    if (type === "agent.settled") { contentText = ""; contentTruncated = false; submittedWork = false; contentActivity = "Idle"; }
     queueRuntimeEvent(record);
   };
 
@@ -173,6 +233,7 @@ export default function wiBridge(pi: ExtensionAPI) {
     if (command.work_item_id !== workItemId) throw new Error(`control command targets work item ${command.work_item_id || "<missing>"}, expected ${workItemId}`);
     if (!command.id) throw new Error("control command id is required");
     if (handled.has(command.id)) return;
+    if (command.require_idle && (submittedWork || !context?.isIdle() || context.hasPendingMessages())) throw new Error("agent became busy; operation refused without interrupting the turn");
     handled.add(command.id);
     try {
       switch (command.type) {
@@ -180,6 +241,7 @@ export default function wiBridge(pi: ExtensionAPI) {
         case "steer":
         case "follow_up": {
           if (!command.message?.trim()) throw new Error("runtime control message is empty");
+          submittedWork = true;
           if (context?.isIdle()) {
             pi.sendUserMessage(command.message);
           } else {
@@ -192,6 +254,7 @@ export default function wiBridge(pi: ExtensionAPI) {
         case "abort":
           if (!context) throw new Error("Pi extension context is not ready");
           context.abort();
+          submittedWork = false;
           accept(command);
           break;
         case "shutdown":
@@ -203,6 +266,8 @@ export default function wiBridge(pi: ExtensionAPI) {
           throw new Error(`unsupported runtime control command ${(command as ControlCommand).type}`);
       }
     } catch (error) {
+      handled.delete(command.id);
+      if (command.type === "prompt" || command.type === "steer" || command.type === "follow_up") submittedWork = false;
       reject(command, error);
       return error instanceof Error ? error.message : String(error);
     }
@@ -210,6 +275,26 @@ export default function wiBridge(pi: ExtensionAPI) {
 
   pi.on("session_start", (event, ctx) => {
     context = ctx;
+    contentServer = createServer((socket) => {
+      let request = "";
+      socket.setEncoding("utf8");
+      socket.setTimeout(2000, () => socket.destroy());
+      socket.on("error", () => socket.destroy());
+      socket.on("data", (chunk) => {
+        request += chunk.toString();
+        if (request.length > 4096) { socket.destroy(); return; }
+        if (!request.includes("\n")) return;
+        try {
+          const req = JSON.parse(request.split("\n")[0]);
+          if (req.protocol_version !== contentVersion || req.runtime_id !== runtimeId || req.work_item_id !== workItemId) {
+            socket.end(`${JSON.stringify({error: "content owner mismatch"})}\n`); return;
+          }
+          socket.end(`${JSON.stringify({protocol_version: contentVersion, runtime_id: runtimeId, work_item_id: workItemId, sequence: contentSequence, idle_guard: true, text: contentText, truncated: contentTruncated, activity: contentActivity, leaf_id: context?.sessionManager.getLeafId() ?? "-"})}\n`);
+        } catch { socket.destroy(); }
+      });
+    });
+    contentServer.on("error", (error) => console.error(`wi content socket: ${String(error)}`));
+    contentServer.listen(contentPath, () => { ownsContentSocket = true; try { chmodSync(contentPath, 0o600); } catch { /* listen error reported above */ } });
     emit("runtime.ready", {
       data: { mode, session_id: ctx.sessionManager.getSessionId(), session_file: ctx.sessionManager.getSessionFile() },
       backend_event_type: "session_start",
@@ -218,9 +303,12 @@ export default function wiBridge(pi: ExtensionAPI) {
     try { unlinkSync(controlSocketPath); } catch { /* absent or stale socket cleanup failed; listen reports real errors */ }
     controlServer = createServer((socket) => {
       let buffered = "";
+      socket.setTimeout(2000, () => socket.destroy());
+      socket.on("error", () => socket.destroy());
       socket.setEncoding("utf8");
       socket.on("data", (chunk) => {
         buffered += chunk;
+        if (Buffer.byteLength(buffered) > 1 << 20) { socket.destroy(); return; }
         const newline = buffered.indexOf("\n");
         if (newline < 0) return;
         const raw = buffered.slice(0, newline).trim();
@@ -375,6 +463,10 @@ export default function wiBridge(pi: ExtensionAPI) {
     idleProbe = undefined;
     controlServer?.close();
     controlServer = undefined;
+    contentServer?.close();
+    contentServer = undefined;
+    if (ownsContentSocket) { try { unlinkSync(contentPath); } catch { /* absent */ } }
+    ownsContentSocket = false;
     try { unlinkSync(controlSocketPath); } catch { /* already removed */ }
     emit("runtime.stopping", { backend_event_type: "session_shutdown", backend_event: { type: "session_shutdown", ...event } });
   });

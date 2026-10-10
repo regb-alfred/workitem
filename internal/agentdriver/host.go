@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"syscall"
 	"time"
 
 	"github.com/regb/workitem/agentdriver/protocol"
@@ -95,6 +96,11 @@ func RunOperation(ctx context.Context, path string, args []string, request drive
 	}
 	defer server.Close()
 	cmd := exec.CommandContext(ctx, path, args...)
+	// Short-lived operations may spawn auxiliary model processes. Cancel the
+	// operation's own process group, never a primary runtime's process group.
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
+	cmd.WaitDelay = 2 * time.Second
 	cmd.Env = withDriverBootstrapSocket(env, bootstrapPath)
 	cmd.Stderr = os.Stderr
 	if err := cmd.Start(); err != nil {
@@ -102,7 +108,7 @@ func RunOperation(ctx context.Context, path string, args []string, request drive
 	}
 	response, operationErr := server.ServeRequestOnce(ctx, request)
 	if operationErr != nil {
-		_ = cmd.Process.Kill()
+		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
 	}
 	waitErr := cmd.Wait()
 	if operationErr != nil {

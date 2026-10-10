@@ -125,7 +125,7 @@ ready:
 		t.Fatalf("negotiated runtime=%+v err=%v", stored, err)
 	}
 	controlPath := applicationRuntimeControlPath(application.AgentRuntimeSocketRoot, itemID, runtimeID)
-	shutdown := driverprotocol.ControlCommand{ProtocolVersion: driverprotocol.Version, ID: "shutdown-tui", RuntimeID: runtimeID, WorkItemID: itemID, Type: driverprotocol.CommandShutdown, CreatedAt: time.Now().UTC()}
+	shutdown := driverprotocol.ControlCommand{ProtocolVersion: driverprotocol.RuntimeVersion, ID: "shutdown-tui", RuntimeID: runtimeID, WorkItemID: itemID, Type: driverprotocol.CommandShutdown, CreatedAt: time.Now().UTC()}
 	if err := driverprotocol.SubmitControl(context.Background(), controlPath, shutdown); err != nil {
 		t.Fatal(err)
 	}
@@ -169,7 +169,7 @@ func TestTUIDriverHelperProcess(t *testing.T) {
 	if err := reply(driverprotocol.Response{ProtocolVersion: driverprotocol.Version, Ready: &ready}); err != nil {
 		t.Fatal(err)
 	}
-	event := driverprotocol.RuntimeEvent{ProtocolVersion: driverprotocol.Version, EventID: "tui-ready", RuntimeID: launch.Runtime.ID, WorkItemID: launch.Runtime.WorkItemID, Type: driverprotocol.EventRuntimeReady, Timestamp: time.Now().UTC()}
+	event := driverprotocol.RuntimeEvent{ProtocolVersion: driverprotocol.RuntimeVersion, EventID: "tui-ready", RuntimeID: launch.Runtime.ID, WorkItemID: launch.Runtime.WorkItemID, Type: driverprotocol.EventRuntimeReady, Timestamp: time.Now().UTC()}
 	if err := driverprotocol.SubmitEvent(context.Background(), launch.Runtime.EventSocketPath, event); err != nil {
 		t.Fatal(err)
 	}

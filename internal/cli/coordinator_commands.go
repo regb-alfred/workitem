@@ -9,6 +9,7 @@ import (
 	"github.com/regb/workitem/internal/app"
 	viewapp "github.com/regb/workitem/internal/app/view"
 	"github.com/regb/workitem/internal/coordinator"
+	itemlock "github.com/regb/workitem/internal/lock"
 	"github.com/regb/workitem/internal/model"
 )
 
@@ -46,6 +47,11 @@ func executeCoordinatorManifestCommand(ctx context.Context, cfg Config, selector
 	if err != nil {
 		return coordinator.CanonicalManifest{}, coordinator.ManifestCommandResult{}, err
 	}
+	operation, err := itemlock.AcquireOperation(ctx, cfg.App.Store.LockPath(manifest.ID))
+	if err != nil {
+		return coordinator.CanonicalManifest{}, coordinator.ManifestCommandResult{}, err
+	}
+	defer operation.Release()
 	commandID, err := model.NewID()
 	if err != nil {
 		return coordinator.CanonicalManifest{}, coordinator.ManifestCommandResult{}, err
@@ -96,6 +102,11 @@ func coordinatorWaitAndQueue(ctx context.Context, cfg Config, selector string, l
 	if err != nil {
 		return app.StateTransitionResult{}, app.AttentionQueueResult{}, nil, err
 	}
+	operation, err := itemlock.AcquireOperation(ctx, cfg.App.Store.LockPath(manifest.ID))
+	if err != nil {
+		return app.StateTransitionResult{}, app.AttentionQueueResult{}, nil, err
+	}
+	defer operation.Release()
 	capacity := cfg.App.DeepWorkCapacity()
 	commandID, err := model.NewID()
 	if err != nil {

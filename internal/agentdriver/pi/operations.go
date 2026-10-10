@@ -12,11 +12,17 @@ func handleConversationOperation(ctx context.Context, envelope driverprotocol.Re
 	if request == nil {
 		return driverprotocol.ConversationResponse{}, fmt.Errorf("conversation request is required")
 	}
-	if _, err := parseConfig(envelope.Config); err != nil {
+	config, err := parseConfig(envelope.Config)
+	if err != nil {
 		return driverprotocol.ConversationResponse{}, fmt.Errorf("invalid Pi configuration: %w", err)
 	}
 	client := New("pi")
 	switch envelope.Operation {
+	case driverprotocol.OperationConversationCapabilities:
+		return driverprotocol.ConversationResponse{Capabilities: &driverprotocol.ConversationCapabilities{History: true, Title: true}}, nil
+	case driverprotocol.OperationConversationTitle:
+		title, err := GenerateTitle(ctx, config, request.Prompt)
+		return driverprotocol.ConversationResponse{Title: title}, err
 	case driverprotocol.OperationConversationCreate:
 		conversation := client.NewConversation(request.ID)
 		return driverprotocol.ConversationResponse{Conversation: driverprotocol.Conversation{ID: conversation.ID, Locator: conversation.NativeLocator(), Format: conversation.Format}}, nil
@@ -31,6 +37,9 @@ func handleConversationOperation(ctx context.Context, envelope driverprotocol.Re
 	case driverprotocol.OperationConversationObserve:
 		observation, warnings := ObserveConversationPath(request.Path, request.Now)
 		return driverprotocol.ConversationResponse{Observation: &observation, Warnings: warnings}, nil
+	case driverprotocol.OperationConversationHistory:
+		history, err := ReadHistory(ctx, request.Path, request.LeafID)
+		return driverprotocol.ConversationResponse{History: &history}, err
 	case driverprotocol.OperationConversationDecode:
 		response := driverprotocol.ConversationResponse{Facts: make([]driverprotocol.ConversationFact, 0, len(request.Lines)), Decoded: make([]bool, len(request.Lines))}
 		for i, raw := range request.Lines {

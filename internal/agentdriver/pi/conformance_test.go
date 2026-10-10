@@ -35,7 +35,7 @@ while [ "$#" -gt 0 ]; do
 done
 while IFS= read -r line; do
   case "$line" in
-    *wi-runtime-ready*) printf '%s\n' '{"id":"wi-runtime-ready","type":"response","command":"get_state","success":true,"data":{"isStreaming":false}}' ;;
+    *wi-runtime-ready*) printf '%s\n' '{"id":"wi-runtime-ready","type":"response","command":"get_commands","success":true,"data":{"commands":[{"name":"wi-control-idle"}]}}' ;;
   esac
 done
 `

@@ -8,7 +8,7 @@ import (
 type headlessRuntimeMode struct{}
 
 func (headlessRuntimeMode) Args(sessionPath, bridgePath string) ([]string, error) {
-	args, err := commonArgs(sessionPath, "")
+	args, err := commonArgs(sessionPath, bridgePath)
 	if err != nil {
 		return nil, err
 	}

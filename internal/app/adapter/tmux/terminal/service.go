@@ -17,6 +17,7 @@ type Store interface {
 	ItemDir(string) string
 	LoadAgentRuntime(string) (*model.AgentRuntime, error)
 	LoadTerminalRuntime(string) (*model.TerminalRuntime, error)
+	SaveTerminalRuntime(context.Context, string, model.TerminalRuntime) error
 	RemoveTerminalRuntime(context.Context, string) error
 	AppendEvent(context.Context, string, model.Event) error
 }
@@ -43,6 +44,9 @@ type Service struct {
 }
 
 func New(st Store, t Tmux, r Resolver, ensure WorkspaceEnsurer, ownership OwnershipObserver, now func() time.Time) *Service {
+	if now == nil {
+		now = time.Now
+	}
 	return &Service{store: st, tmux: t, resolve: r, ensureWorkspace: ensure, ownership: ownership, now: now}
 }
 
@@ -241,6 +245,20 @@ func (s *Service) EnsureForManifestWithEnvironmentAndScrub(ctx context.Context, 
 		return Result{}, err
 	}
 	res.Created = created
+	terminal, err := s.store.LoadTerminalRuntime(m.ID)
+	if err != nil {
+		return res, err
+	}
+	if terminal == nil {
+		terminal = &model.TerminalRuntime{UpdatedAt: s.now()}
+		if claim := m.Checkout.Claim; claim != nil {
+			terminal.WorkspaceClaimID = claim.ID
+			terminal.WorkspaceClaimGeneration = claim.Generation
+		}
+		if err := s.store.SaveTerminalRuntime(ctx, m.ID, *terminal); err != nil {
+			return res, fmt.Errorf("terminal exists, but handle cache could not be saved: %w", err)
+		}
+	}
 	if created {
 		_ = s.store.AppendEvent(ctx, m.ID, model.NewEvent(s.now(), "terminal.created", "wi", map[string]any{"session": res.Session}))
 	}

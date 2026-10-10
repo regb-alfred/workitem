@@ -2,7 +2,6 @@ package app
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
@@ -32,12 +31,9 @@ func (a *App) AgentExec(ctx context.Context, itemID, conversationID, runtimeID s
 	if !ok {
 		return fmt.Errorf("agent driver %q is not configured", definition.Driver)
 	}
-	driverConfig := map[string]any{}
-	for key, value := range driverDefinition.Defaults {
-		driverConfig[key] = value
-	}
-	for key, value := range definition.Config {
-		driverConfig[key] = value
+	configJSON, err := a.driverConfigJSON(definition)
+	if err != nil {
+		return fmt.Errorf("encode agent driver configuration: %w", err)
 	}
 	driverPath := driverDefinition.Command
 	var driverArgs []string
@@ -62,7 +58,7 @@ func (a *App) AgentExec(ctx context.Context, itemID, conversationID, runtimeID s
 			client := &coordinator.Client{SocketPath: a.DaemonSocketPath}
 			for request := range events.Requests() {
 				event := request.Event
-				if event.ProtocolVersion != driverprotocol.Version || event.RuntimeID != spec.RuntimeID || event.WorkItemID != spec.WorkItemID {
+				if event.ProtocolVersion != driverprotocol.RuntimeVersion || event.RuntimeID != spec.RuntimeID || event.WorkItemID != spec.WorkItemID {
 					request.Respond(fmt.Errorf("runtime event identity does not match its launch"))
 					continue
 				}
@@ -71,12 +67,11 @@ func (a *App) AgentExec(ctx context.Context, itemID, conversationID, runtimeID s
 			}
 		}()
 		environment := map[string]string{"WI_ID": spec.WorkItemID, "WI_DIR": a.Store.ItemDir(spec.WorkItemID), "WI_WORKTREE": spec.CWD, "WI_AGENT_RUNTIME_ID": spec.RuntimeID, "WI_AGENT_MODE": string(spec.Mode), "WI_AGENT_CONTROL_SOCKET": spec.ControlSocketPath, "WI_AGENT_EVENT_SOCKET": spec.EventSocketPath, "WI_AGENT_CONVERSATION_DIR": spec.ConversationDir}
-		config, _ := json.Marshal(driverConfig)
 		format := ""
 		if manifest.PrimaryConversation != nil {
 			format = manifest.PrimaryConversation.Format
 		}
-		request := driverprotocol.LaunchRequest{ProtocolVersion: driverprotocol.Version, Driver: definition.Driver, Agent: agentName, Config: config, Skills: skills.Bundled(), Runtime: driverprotocol.Runtime{ID: spec.RuntimeID, WorkItemID: spec.WorkItemID, Mode: driverprotocol.Mode(spec.Mode), CWD: spec.CWD, ControlSocketPath: spec.ControlSocketPath, EventSocketPath: spec.EventSocketPath, LogPath: spec.LogPath}, Conversation: driverprotocol.Conversation{ID: conversationID, Locator: spec.ConversationLocator, Format: format}, Environment: environment}
+		request := driverprotocol.LaunchRequest{ProtocolVersion: driverprotocol.Version, Driver: definition.Driver, Agent: agentName, Config: configJSON, Skills: skills.Bundled(), Runtime: driverprotocol.Runtime{ID: spec.RuntimeID, WorkItemID: spec.WorkItemID, Mode: driverprotocol.Mode(spec.Mode), CWD: spec.CWD, ControlSocketPath: spec.ControlSocketPath, EventSocketPath: spec.EventSocketPath, LogPath: spec.LogPath}, Conversation: driverprotocol.Conversation{ID: conversationID, Locator: spec.ConversationLocator, Format: format}, Environment: environment}
 		runErr := a.RunAgentDriver(ctx, driverPath, driverArgs, request, driverProcessEnvironment(os.Environ()), func(ready driverprotocol.Ready) error {
 			runtime, err := a.Store.LoadAgentRuntime(spec.WorkItemID)
 			if err != nil {
@@ -85,7 +80,7 @@ func (a *App) AgentExec(ctx context.Context, itemID, conversationID, runtimeID s
 			if runtime == nil || runtime.ID != spec.RuntimeID {
 				return fmt.Errorf("agent runtime ownership changed during driver startup")
 			}
-			runtime.Capabilities = model.RuntimeCapabilities{NativeTUI: ready.Capabilities.NativeTUI, Headless: ready.Capabilities.Headless, Streaming: ready.Capabilities.Streaming, Prompt: ready.Capabilities.Prompt, Steering: ready.Capabilities.Steering, FollowUp: ready.Capabilities.FollowUp, Cancel: ready.Capabilities.Cancel, Monitor: ready.Capabilities.Monitor}
+			runtime.Capabilities = model.RuntimeCapabilities{LiveContent: ready.Capabilities.LiveContent, IdleGuard: ready.Capabilities.IdleGuard, NativeTUI: ready.Capabilities.NativeTUI, Headless: ready.Capabilities.Headless, Streaming: ready.Capabilities.Streaming, Prompt: ready.Capabilities.Prompt, Steering: ready.Capabilities.Steering, FollowUp: ready.Capabilities.FollowUp, Cancel: ready.Capabilities.Cancel, Monitor: ready.Capabilities.Monitor}
 			runtime.UpdatedAt = a.now()
 			return a.Store.SaveAgentRuntime(ctx, spec.WorkItemID, *runtime)
 		})

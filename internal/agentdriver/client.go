@@ -39,6 +39,23 @@ func (c Client) request(ctx context.Context, operation, agent string, config jso
 	return *response.Conversation, nil
 }
 
+func (c Client) ConversationCapabilities(ctx context.Context) (driverprotocol.ConversationCapabilities, error) {
+	response, err := c.request(ctx, driverprotocol.OperationConversationCapabilities, "", nil, driverprotocol.ConversationRequest{})
+	if err != nil {
+		return driverprotocol.ConversationCapabilities{}, err
+	}
+	if response.Capabilities == nil {
+		return driverprotocol.ConversationCapabilities{}, fmt.Errorf("driver %q omitted its conversation capabilities", c.Driver)
+	}
+	return *response.Capabilities, nil
+}
+
+// GenerateTitle is optional and never writes or acquires a native conversation.
+func (c Client) GenerateTitle(ctx context.Context, prompt, agent string, config json.RawMessage) (string, error) {
+	response, err := c.request(ctx, driverprotocol.OperationConversationTitle, agent, config, driverprotocol.ConversationRequest{Prompt: prompt})
+	return response.Title, err
+}
+
 func (c Client) NewConversation(ctx context.Context, id, agent string, config json.RawMessage) (model.Conversation, error) {
 	response, err := c.request(ctx, driverprotocol.OperationConversationCreate, agent, config, driverprotocol.ConversationRequest{ID: id})
 	if err != nil {

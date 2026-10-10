@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"github.com/regb/workitem/internal/agent"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -25,7 +26,7 @@ func TestAgentRuntimeEnvironmentKeepsWiOnPath(t *testing.T) {
 			d := &runtimeDirenv{status: model.DirenvStatus{Found: tt.project != "", Allowed: true, RCPath: filepath.Join(path, ".envrc")}, env: map[string]string{"PATH": tt.project}}
 			a := &App{SelfPath: tt.self, Direnv: d, Tmux: fakeBaseTmux{global: map[string]string{"PATH": tt.path, "HOME": "/home/user"}}}
 			m := model.Manifest{Checkout: model.Checkout{ClaimGeneration: 1, Claim: &model.WorkspaceClaim{ID: "test-claim", Generation: 1, Executor: model.ExecutorLocal, Path: path}}}
-			env, _, _, err := a.agentRuntimeEnvironment(context.Background(), m)
+			env, _, _, err := a.agentRuntimeEnvironment(context.Background(), m, agent.ModeTUI)
 			if err != nil || env["PATH"] != tt.want {
 				t.Fatalf("path=%q want=%q error=%v", env["PATH"], tt.want, err)
 			}

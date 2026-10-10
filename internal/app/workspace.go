@@ -16,10 +16,22 @@ type WorkspaceReleaseResult = workspacecore.ReleaseResult
 type checkoutRelease = workspacecore.CheckoutRelease
 
 func (a *App) CheckoutCreate(ctx context.Context, opts ResolveOptions) (CheckoutCreateResult, error) {
+	m, operation, err := a.lockItemOperation(ctx, opts)
+	if err != nil {
+		return CheckoutCreateResult{}, err
+	}
+	defer operation.Release()
+	opts.Selector = m.ID
 	return a.workspaceService().CheckoutCreate(ctx, opts)
 }
 
 func (a *App) CheckoutRemove(ctx context.Context, opts ResolveOptions) (CheckoutRemoveResult, error) {
+	m, operation, err := a.lockItemOperation(ctx, opts)
+	if err != nil {
+		return CheckoutRemoveResult{}, err
+	}
+	defer operation.Release()
+	opts.Selector = m.ID
 	return a.workspaceService().CheckoutRemove(ctx, opts)
 }
 
@@ -34,6 +46,12 @@ func (a *App) WorkspaceStatus(ctx context.Context, opts ResolveOptions) (Workspa
 
 // EnsureWorkItemWorkspace materializes only the repository worktree.
 func (a *App) EnsureWorkItemWorkspace(ctx context.Context, opts ResolveOptions) (CompositionResult, error) {
+	m, operation, err := a.lockItemOperation(ctx, opts)
+	if err != nil {
+		return CompositionResult{}, err
+	}
+	defer operation.Release()
+	opts.Selector = m.ID
 	res, err := a.workspaceService().Ensure(ctx, opts)
 	if err != nil {
 		return CompositionResult{}, err
@@ -46,6 +64,12 @@ func (a *App) ensureWorkspaceCheckout(ctx context.Context, opts ResolveOptions, 
 }
 
 func (a *App) ReleaseWorkItemWorkspace(ctx context.Context, opts ResolveOptions) (WorkspaceReleaseResult, error) {
+	m, operation, err := a.lockItemOperation(ctx, opts)
+	if err != nil {
+		return WorkspaceReleaseResult{}, err
+	}
+	defer operation.Release()
+	opts.Selector = m.ID
 	return a.workspaceService().Release(ctx, opts)
 }
 

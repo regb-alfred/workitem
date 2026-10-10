@@ -1765,7 +1765,7 @@ func TestHeadlessRuntimeUsesNativeControlWithoutTmux(t *testing.T) {
 	if strings.Join(launcher.spec.Args, " ") != strings.Join([]string{"agent", "exec", "--item", itemID, "--conversation", sessionID, "--runtime", ensured.Runtime.ID, "--mode", "headless"}, " ") {
 		t.Fatalf("launcher args = %+v", launcher.spec.Args)
 	}
-	if got := envValue(launcher.spec.Env, "PATH"); got != "/usr/local/bin:/clean/bin" {
+	if got := envValue(launcher.spec.Env, "PATH"); got != os.Getenv("PATH") {
 		t.Fatalf("runtime PATH = %q", got)
 	}
 	if got := envValue(launcher.spec.Env, "PI_SESSION_ID"); got != "" {

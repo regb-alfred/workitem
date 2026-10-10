@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"crypto/rand"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -23,12 +24,14 @@ import (
 const rpcReadyCommandID = "wi-runtime-ready"
 
 type rpcOutput struct {
-	Type    string          `json:"type"`
-	ID      string          `json:"id,omitempty"`
-	Command string          `json:"command,omitempty"`
-	Success bool            `json:"success,omitempty"`
-	Error   string          `json:"error,omitempty"`
-	Data    json.RawMessage `json:"data,omitempty"`
+	Type       string          `json:"type"`
+	ID         string          `json:"id,omitempty"`
+	Command    string          `json:"command,omitempty"`
+	Success    bool            `json:"success,omitempty"`
+	Error      string          `json:"error,omitempty"`
+	Data       json.RawMessage `json:"data,omitempty"`
+	RuntimeID  string          `json:"runtime_id,omitempty"`
+	WorkItemID string          `json:"work_item_id,omitempty"`
 }
 
 type queuedLiveEvent struct {
@@ -37,10 +40,15 @@ type queuedLiveEvent struct {
 }
 
 type nativeRPCTransport struct {
+	content          *driverprotocol.ContentServer
 	spec             ExecSpec
 	stdin            io.WriteCloser
 	pending          map[string]agent.ControlCommand
 	handled          map[string]bool
+	busy             bool
+	work             map[string]bool // Submitted work, with true marking settlement before its response.
+	responses        map[string]func(error)
+	shutdownPending  bool
 	ready            bool
 	stopping         bool
 	currentRequestID string
@@ -98,8 +106,18 @@ func runNativeRPC(ctx context.Context, path string, args, env []string, spec Exe
 		stdin:     stdin,
 		pending:   map[string]agent.ControlCommand{},
 		handled:   map[string]bool{},
+		work:      map[string]bool{},
+		responses: map[string]func(error){},
 		liveNonce: hex.EncodeToString(nonceBytes),
 	}
+	content, err := driverprotocol.ListenContent(driverprotocol.ContentSocketPath(spec.ControlSocketPath), spec.RuntimeID, spec.WorkItemID, true)
+	if err != nil {
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
+		return fmt.Errorf("listen for Pi content: %w", err)
+	}
+	defer content.Close()
+	transport.content = content
 	transport.liveQueue = make(chan queuedLiveEvent, 256)
 	transport.liveContext = ctx
 	go transport.runLiveSender(ctx)
@@ -110,7 +128,7 @@ func runNativeRPC(ctx context.Context, path string, args, env []string, spec Exe
 		return fmt.Errorf("listen for Pi RPC control: %w", err)
 	}
 	defer control.Close()
-	if err := transport.writeNativeCommand(map[string]any{"id": rpcReadyCommandID, "type": "get_state"}); err != nil {
+	if err := transport.writeNativeCommand(map[string]any{"id": rpcReadyCommandID, "type": "get_commands"}); err != nil {
 		_ = cmd.Process.Kill()
 		_ = cmd.Wait()
 		return err
@@ -122,16 +140,24 @@ func runNativeRPC(ctx context.Context, path string, args, env []string, spec Exe
 	processDone := make(chan error, 1)
 	go func() { processDone <- cmd.Wait() }()
 	defer stdin.Close()
+	var processExit error
+	processExited := false
 
 	for {
+		// Consume output already written before process exit. A guarded shutdown
+		// result must reach its control client before the socket is closed.
+		if processExited && lines == nil {
+			if transport.stopping && isExpectedProcessExit(processExit) {
+				return nil
+			}
+			return processExit
+		}
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
 		case err := <-processDone:
-			if transport.stopping && isExpectedProcessExit(err) {
-				return nil
-			}
-			return err
+			processExit, processExited = err, true
+			processDone = nil
 		case err := <-scanErr:
 			if err != nil && !(transport.stopping && errors.Is(err, os.ErrClosed)) {
 				return fmt.Errorf("read Pi RPC output: %w", err)
@@ -149,11 +175,16 @@ func runNativeRPC(ctx context.Context, path string, args, env []string, spec Exe
 			if !ok {
 				continue
 			}
-			if !transport.ready || transport.stopping {
+			if !transport.ready || transport.stopping || transport.shutdownPending {
 				request.Respond(fmt.Errorf("RPC runtime is not accepting commands"))
 				continue
 			}
-			request.Respond(transport.sendCommand(request.Command))
+			err := transport.sendCommand(request.Command)
+			if err == nil && request.Command.RequireIdle && request.Command.Type == agent.CommandShutdown {
+				transport.responses[request.Command.ID] = request.Respond
+			} else {
+				request.Respond(err)
+			}
 		}
 	}
 }
@@ -177,10 +208,30 @@ func (t *nativeRPCTransport) handleOutput(raw []byte) error {
 	if err := json.Unmarshal(raw, &output); err != nil {
 		return t.emit(agent.RuntimeEvent{Type: agent.EventRuntimeFailed, Error: "invalid native Pi RPC output: " + err.Error(), Backend: "pi", BackendEvent: append(json.RawMessage(nil), raw...)})
 	}
-	if output.Type == "response" {
+	if output.Type == "response" || output.Type == "wi_control_result" {
+		if output.Type == "wi_control_result" && (output.RuntimeID != t.spec.RuntimeID || output.WorkItemID != t.spec.WorkItemID) {
+			return fmt.Errorf("native idle-control result owner mismatch")
+		}
 		if output.ID == rpcReadyCommandID {
 			if !output.Success {
 				return fmt.Errorf("RPC initialization failed: %s", output.Error)
+			}
+			var commands struct {
+				Commands []struct {
+					Name string `json:"name"`
+				} `json:"commands"`
+			}
+			if err := json.Unmarshal(output.Data, &commands); err != nil {
+				return fmt.Errorf("read Pi control capabilities: %w", err)
+			}
+			found := false
+			for _, command := range commands.Commands {
+				if command.Name == "wi-control-idle" {
+					found = true
+				}
+			}
+			if !found {
+				return fmt.Errorf("Pi idle-only control extension is unavailable")
 			}
 			t.ready = true
 			return t.emit(agent.RuntimeEvent{Type: agent.EventRuntimeReady, Backend: "pi", BackendEventType: output.Type, BackendEvent: append(json.RawMessage(nil), raw...), Data: decodeJSONObject(output.Data)})
@@ -189,7 +240,31 @@ func (t *nativeRPCTransport) handleOutput(raw []byte) error {
 		if !ok {
 			return t.emit(t.nativeEvent("backend.response", output.Type, raw, ""))
 		}
+		guardedControl := command.RequireIdle && (command.Type == agent.CommandShutdown || command.Type == agent.CommandAbort)
+		if guardedControl && output.Type == "response" && output.Success {
+			// Native slash-command handling is not evidence that its guard succeeded.
+			return nil
+		}
 		delete(t.pending, output.ID)
+		var disposition struct {
+			Disposition string `json:"disposition"`
+		}
+		_ = json.Unmarshal(output.Data, &disposition)
+		if settled, exists := t.work[output.ID]; exists && (!output.Success || disposition.Disposition == "handled" || settled && !t.busy) {
+			delete(t.work, output.ID)
+		}
+		if command.Type == agent.CommandShutdown && command.RequireIdle {
+			t.shutdownPending = false
+			t.stopping = output.Success
+		}
+		if respond := t.responses[output.ID]; respond != nil {
+			delete(t.responses, output.ID)
+			if output.Success {
+				respond(nil)
+			} else {
+				respond(fmt.Errorf("idle-only shutdown refused: %s", output.Error))
+			}
+		}
 		event := agent.RuntimeEvent{
 			Type:             agent.EventCommandAccepted,
 			CommandID:        command.ID,
@@ -203,9 +278,28 @@ func (t *nativeRPCTransport) handleOutput(raw []byte) error {
 			event.Type = agent.EventCommandRejected
 			event.Error = output.Error
 		}
-		return t.emit(event)
+		if err := t.emit(event); err != nil {
+			return err
+		}
+		if command.Type == agent.CommandShutdown && output.Success {
+			return t.emit(agent.RuntimeEvent{Type: agent.EventRuntimeStopping, Backend: "pi"})
+		}
+		return nil
 	}
 
+	switch output.Type {
+	case "agent_start", "turn_start":
+		t.busy = true
+	case "agent_settled":
+		t.busy = false
+		for id := range t.work {
+			if _, pending := t.pending[id]; pending {
+				t.work[id] = true
+			} else {
+				delete(t.work, id)
+			}
+		}
+	}
 	if output.Type == "message_start" {
 		if requestID := requestMarkerFromNativeEvent(raw); requestID != "" {
 			t.currentRequestID = requestID
@@ -237,6 +331,7 @@ func (t *nativeRPCTransport) emit(event agent.RuntimeEvent) error {
 		event.Timestamp = time.Now().UTC()
 	}
 	t.ensureRuntimeEventID(&event)
+	t.content.Update(event.Type, event.Text, event.ToolName)
 	t.emitLiveConfirmed(event)
 	return nil
 }
@@ -339,8 +434,11 @@ func (t *nativeRPCTransport) sendCommand(command agent.ControlCommand) error {
 	if t.handled[command.ID] {
 		return nil
 	}
+	if command.RequireIdle && (t.busy || len(t.work) != 0) {
+		return fmt.Errorf("agent became busy; operation refused without interrupting the turn")
+	}
 	t.handled[command.ID] = true
-	if command.Type == agent.CommandShutdown {
+	if command.Type == agent.CommandShutdown && !command.RequireIdle {
 		t.stopping = true
 		if err := t.emit(agent.RuntimeEvent{Type: agent.EventCommandAccepted, CommandID: command.ID, RequestID: command.RequestID, Backend: "pi", Data: map[string]any{"command_type": command.Type, "actor": command.Actor}}); err != nil {
 			return err
@@ -362,19 +460,47 @@ func (t *nativeRPCTransport) sendCommand(command agent.ControlCommand) error {
 	case agent.CommandFollowUp:
 		native["type"] = "follow_up"
 		native["message"] = command.Message
-	case agent.CommandAbort:
-		// No additional fields.
+	case agent.CommandAbort, agent.CommandShutdown:
+		// Guarded shutdown is handled by the in-process extension below.
 	default:
 		return t.emit(agent.RuntimeEvent{Type: agent.EventCommandRejected, CommandID: command.ID, RequestID: command.RequestID, Error: "unsupported runtime control command " + command.Type, Backend: "pi"})
+	}
+	if command.RequireIdle && (command.Type == agent.CommandShutdown || command.Type == agent.CommandAbort) {
+		raw, err := json.Marshal(command)
+		if err != nil {
+			delete(t.handled, command.ID)
+			return err
+		}
+		native = map[string]any{"id": command.ID, "type": "prompt", "message": "/wi-control-idle " + base64.StdEncoding.EncodeToString(raw)}
+	}
+	if command.RequireIdle && (command.Type == agent.CommandPrompt || command.Type == agent.CommandSteer || command.Type == agent.CommandFollowUp) {
+		native["type"] = "prompt"
+		delete(native, "streamingBehavior")
+	}
+	// Reserve work before acknowledging handoff. Native events can arrive later.
+	isWork := command.Type == agent.CommandPrompt || command.Type == agent.CommandSteer || command.Type == agent.CommandFollowUp
+	if isWork {
+		if t.work == nil {
+			t.work = map[string]bool{}
+		}
+		t.work[command.ID] = false
 	}
 	t.pending[command.ID] = command
 	if err := t.writeNativeCommand(native); err != nil {
 		delete(t.pending, command.ID)
+		delete(t.work, command.ID)
+		delete(t.handled, command.ID)
 		return err
+	}
+	if command.Type == agent.CommandShutdown {
+		t.shutdownPending = true
 	}
 	// A successful write transfers ownership to Pi's native RPC transport.
 	// Publish compact actionability before replying to the control client; the
 	// later backend response remains separate confirmation evidence.
+	if command.Type == agent.CommandShutdown {
+		return nil
+	}
 	t.emitLiveConfirmed(agent.RuntimeEvent{Type: agent.EventCommandAccepted, RequestID: command.RequestID, Timestamp: time.Now().UTC()})
 	return nil
 }

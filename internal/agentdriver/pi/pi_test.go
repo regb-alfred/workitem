@@ -54,7 +54,7 @@ func TestExecCommandConstructionByMode(t *testing.T) {
 		headless bool
 	}{
 		{mode: agent.ModeTUI, wantArgs: []string{"--extension", "/tmp/bridge.ts", "--session", "/tmp/item/sessions/pi/session.jsonl", "--skill", "/tmp/skill one", "--skill", "/tmp/skill-two"}},
-		{mode: agent.ModeHeadless, wantArgs: []string{"--mode", "rpc", "--session", "/tmp/item/sessions/pi/session.jsonl", "--skill", "/tmp/skill one", "--skill", "/tmp/skill-two"}, headless: true},
+		{mode: agent.ModeHeadless, wantArgs: []string{"--extension", "/tmp/bridge.ts", "--mode", "rpc", "--session", "/tmp/item/sessions/pi/session.jsonl", "--skill", "/tmp/skill one", "--skill", "/tmp/skill-two"}, headless: true},
 	} {
 		t.Run(string(tt.mode), func(t *testing.T) {
 			r := &recordingRunner{}

@@ -58,6 +58,12 @@ func (a *App) TerminalStatus(ctx context.Context, opts ResolveOptions) (Terminal
 	return a.terminalService().Status(ctx, opts)
 }
 func (a *App) EnsureTerminal(ctx context.Context, opts ResolveOptions) (TerminalResult, error) {
+	m, operation, err := a.lockItemOperation(ctx, opts)
+	if err != nil {
+		return TerminalResult{}, err
+	}
+	defer operation.Release()
+	opts.Selector = m.ID
 	return a.terminalService().Ensure(ctx, opts)
 }
 func (a *App) EnterTerminal(ctx context.Context, opts ResolveOptions, attach bool) (TerminalResult, error) {
@@ -67,6 +73,12 @@ func (a *App) enterExistingTerminal(ctx context.Context, opts ResolveOptions, at
 	return a.terminalService().EnterExisting(ctx, opts, attach)
 }
 func (a *App) CloseTerminal(ctx context.Context, opts ResolveOptions) (TerminalCloseResult, error) {
+	m, operation, err := a.lockItemOperation(ctx, opts)
+	if err != nil {
+		return TerminalCloseResult{}, err
+	}
+	defer operation.Release()
+	opts.Selector = m.ID
 	return a.terminalService().Close(ctx, opts)
 }
 func (a *App) ensureTerminalWorkspaceWithEnvironment(ctx context.Context, opts ResolveOptions, m model.Manifest, createCheckout bool, environment map[string]string, scrub []string) (TerminalResult, error) {

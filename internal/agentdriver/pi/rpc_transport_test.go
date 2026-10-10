@@ -90,7 +90,7 @@ set -euo pipefail
 while IFS= read -r line; do
   case "$line" in
     *wi-runtime-ready*)
-      printf '%s\n' '{"id":"wi-runtime-ready","type":"response","command":"get_state","success":true,"data":{"isStreaming":false,"sessionId":"native-session"}}'
+      printf '%s\n' '{"id":"wi-runtime-ready","type":"response","command":"get_commands","success":true,"data":{"commands":[{"name":"wi-control-idle"}]}}'
       ;;
     *command-prompt*)
       printf '%s\n' '{"id":"command-prompt","type":"response","command":"prompt","success":true}'
@@ -98,6 +98,9 @@ while IFS= read -r line; do
       printf '%s\n' '{"type":"agent_start"}'
       printf '%s\n' '{"type":"tool_execution_start","toolCallId":"tool-1","toolName":"bash","args":{"command":"private command"}}'
       printf '%s\n' '{"type":"tool_execution_end","toolCallId":"tool-1","toolName":"bash","result":{"content":[{"type":"text","text":"private result"}]},"isError":false}'
+      printf '%s\n' '{"type":"message_start","message":{"role":"assistant","content":[]}}'
+      printf '%s\n' '{"type":"message_update","assistantMessageEvent":{"type":"text_delta","delta":"live private text"}}'
+      sleep 1
       printf '%s\n' '{"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"private answer"}],"stopReason":"stop"}}'
       printf '%s\n' '{"type":"agent_settled"}'
       ;;
@@ -123,6 +126,19 @@ done
 	defer cancel()
 	if err := agent.SubmitControlSocket(ctx, controlPath, agent.ControlCommand{ProtocolVersion: agent.RuntimeProtocolVersion, ID: "command-prompt", RuntimeID: runtimeID, WorkItemID: itemID, RequestID: "request-1", Type: agent.CommandPrompt, Message: "[wi request request-1]\nprivate prompt", CreatedAt: time.Now()}); err != nil {
 		t.Fatal(err)
+	}
+	contentSeen := false
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		value, readErr := driverprotocol.ReadContent(ctx, driverprotocol.ContentSocketPath(controlPath), runtimeID, itemID)
+		if readErr == nil && value.Text == "live private text" {
+			contentSeen = true
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if !contentSeen {
+		t.Fatal("live text was not available through public content endpoint")
 	}
 	events := waitForDaemonRuntimeEvent(t, daemonClient, itemID, agent.EventAgentSettled)
 	types := map[string]bool{}

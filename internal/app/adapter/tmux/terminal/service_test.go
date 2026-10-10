@@ -44,13 +44,19 @@ func (f fakeTmux) AttachOrSwitchClient(_ context.Context, _ string, _ bool, clie
 }
 func (f fakeTmux) KillSession(context.Context, string) error { return f.err }
 
-type fakeStore struct{}
+type fakeStore struct{ saved **model.TerminalRuntime }
 
 func (fakeStore) ItemDir(string) string                                      { return "/items/item-1" }
 func (fakeStore) LoadAgentRuntime(string) (*model.AgentRuntime, error)       { return nil, nil }
 func (fakeStore) LoadTerminalRuntime(string) (*model.TerminalRuntime, error) { return nil, nil }
-func (fakeStore) RemoveTerminalRuntime(context.Context, string) error        { return nil }
-func (fakeStore) AppendEvent(context.Context, string, model.Event) error     { return nil }
+func (s fakeStore) SaveTerminalRuntime(_ context.Context, _ string, value model.TerminalRuntime) error {
+	if s.saved != nil {
+		*s.saved = &value
+	}
+	return nil
+}
+func (fakeStore) RemoveTerminalRuntime(context.Context, string) error    { return nil }
+func (fakeStore) AppendEvent(context.Context, string, model.Event) error { return nil }
 
 func TestEnsureForManifestAppliesEnvironmentBeforeSessionCreation(t *testing.T) {
 	path := "/checkout"
@@ -59,10 +65,14 @@ func TestEnsureForManifestAppliesEnvironmentBeforeSessionCreation(t *testing.T) 
 		return manifest, nil, nil
 	}
 	var captured tmuxpkg.SessionSpec
-	service := New(fakeStore{}, fakeTmux{specSink: &captured}, nil, workspace, nil, nil)
+	var saved *model.TerminalRuntime
+	service := New(fakeStore{saved: &saved}, fakeTmux{specSink: &captured}, nil, workspace, nil, nil)
 	_, err := service.EnsureForManifestWithEnvironment(context.Background(), contract.ResolveOptions{}, manifest, true, map[string]string{"PROJECT_TOKEN": "loaded", "PATH": "/project/bin"})
 	if err != nil {
 		t.Fatal(err)
+	}
+	if saved == nil || saved.WorkspaceClaimID != "test-claim" || saved.WorkspaceClaimGeneration != 1 {
+		t.Fatalf("terminal handle cache=%+v", saved)
 	}
 	if captured.Env["PROJECT_TOKEN"] != "loaded" || captured.Env["PATH"] != "/project/bin" || captured.Env["WI_ID"] != "item-1" {
 		t.Fatalf("session environment=%+v", captured.Env)

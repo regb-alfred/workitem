@@ -74,13 +74,27 @@ func (s *Service) Stop(ctx context.Context, opts contract.ResolveOptions, force 
 			return result, err
 		}
 	}
-	shutdown := agent.ControlCommand{ID: fmt.Sprintf("shutdown-%d", now.UnixNano()), Type: agent.CommandShutdown, Actor: "operator", CreatedAt: now}
+	shutdown := agent.ControlCommand{ID: fmt.Sprintf("shutdown-%d", now.UnixNano()), Type: agent.CommandShutdown, Actor: "operator", CreatedAt: now, RequireIdle: !force && runtime.Capabilities.IdleGuard}
 	if err := s.SubmitControl(ctx, m.ID, *runtime, shutdown); err != nil {
 		if force && errors.Is(err, agent.ErrControlSocketUnavailable) && ownership.IdentityVerified {
 			return s.terminateRuntimeGroup(ctx, m.ID, runtime, result, "control socket unavailable; terminated verified agent runtime process group")
 		}
 		return result, err
 	}
+	result.Changed = true
+	result.Warnings = append(result.Warnings, "driver accepted runtime shutdown")
+	current, err := s.store.LoadAgentRuntime(m.ID)
+	if err != nil {
+		return result, err
+	}
+	if current == nil || current.ID != runtime.ID {
+		return result, fmt.Errorf("runtime owner changed after shutdown handoff")
+	}
+	if current.State == model.AgentRuntimeStopped {
+		result.Runtime = current
+		return result, nil
+	}
+	runtime = current
 	runtime.State, runtime.UpdatedAt = model.AgentRuntimeStopping, now
 	if err := s.store.SaveAgentRuntime(ctx, m.ID, *runtime); err != nil {
 		return result, err
@@ -109,12 +123,12 @@ func (s *Service) terminateRuntimeGroup(ctx context.Context, itemID string, runt
 	if err := s.process.TerminateGroup(runtime.HostPID); err != nil {
 		return result, fmt.Errorf("force-stop agent runtime %s: %w", runtime.ID, err)
 	}
+	result.Changed, result.Runtime = true, runtime
+	result.Warnings = append(result.Warnings, warning)
 	now := s.now()
 	runtime.State, runtime.UpdatedAt = model.AgentRuntimeStopping, now
 	if err := s.store.SaveAgentRuntime(ctx, itemID, *runtime); err != nil {
 		return result, err
 	}
-	result.Changed, result.Runtime = true, runtime
-	result.Warnings = append(result.Warnings, warning)
 	return result, nil
 }

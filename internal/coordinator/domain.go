@@ -9,6 +9,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/regb/workitem/internal/model"
 	"github.com/regb/workitem/internal/priority"
@@ -21,6 +23,7 @@ const (
 	CommandLabelsRemove = "item.labels.remove"
 	CommandDeepWorkSet  = "item.deep_work.set"
 	CommandStateSet     = "item.state.set"
+	CommandTitleSet     = "item.title.set"
 )
 
 type ManifestCommand struct {
@@ -33,6 +36,7 @@ type ManifestCommand struct {
 	Labels           []string  `json:"labels,omitempty"`
 	DeepWork         *bool     `json:"deep_work,omitempty"`
 	TargetState      string    `json:"target_state,omitempty"`
+	Title            string    `json:"title,omitempty"`
 	EventType        string    `json:"event_type,omitempty"`
 	Force            bool      `json:"force,omitempty"`
 	MaxActive        int       `json:"max_active,omitempty"`
@@ -293,6 +297,16 @@ func applyManifestCommand(command ManifestCommand, manifest *model.Manifest, all
 		pending = append(pending, commandEvent{Type: eventType, Payload: payload})
 	}
 	switch command.Type {
+	case CommandTitleSet:
+		title := strings.TrimSpace(command.Title)
+		if title == "" || len(title) > 512 || !utf8.ValidString(title) || strings.IndexFunc(title, unicode.IsControl) >= 0 {
+			return nil, false, fmt.Errorf("a single-line title of up to 512 bytes is required")
+		}
+		if title == manifest.Title {
+			return pending, false, nil
+		}
+		manifest.Title = title
+		appendEvent("work_item.title_set", map[string]any{"title": title})
 	case CommandLabelsAdd:
 		updated, changed, err := model.AddLabels(manifest.Labels, command.Labels...)
 		if err != nil {

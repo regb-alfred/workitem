@@ -2,7 +2,6 @@ package app
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
@@ -32,14 +31,7 @@ func (a *App) createConversation(ctx context.Context, m model.Manifest) (createC
 	if err != nil {
 		return createConversationResult{}, err
 	}
-	driverConfig := map[string]any{}
-	for key, value := range a.DriversConfig[definition.Driver].Defaults {
-		driverConfig[key] = value
-	}
-	for key, value := range definition.Config {
-		driverConfig[key] = value
-	}
-	configJSON, err := json.Marshal(driverConfig)
+	configJSON, err := a.driverConfigJSON(definition)
 	if err != nil {
 		return createConversationResult{}, err
 	}
@@ -143,14 +135,7 @@ func (a *App) ensureConversationCheckout(ctx context.Context, m model.Manifest) 
 		agentName = "default"
 	}
 	definition := a.AgentsConfig[agentName]
-	driverConfig := map[string]any{}
-	for key, value := range a.DriversConfig[definition.Driver].Defaults {
-		driverConfig[key] = value
-	}
-	for key, value := range definition.Config {
-		driverConfig[key] = value
-	}
-	configJSON, err := json.Marshal(driverConfig)
+	configJSON, err := a.driverConfigJSON(definition)
 	if err != nil {
 		return model.Manifest{}, model.Conversation{}, nil, err
 	}
