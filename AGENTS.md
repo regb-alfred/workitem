@@ -1,19 +1,16 @@
-`wi` is a CLI for durable AI-assisted development work items. It builds on `git`, `pi`, and `tmux`.
+`wi` is a CLI for managing work items and associated coding agents.
 
 ## Important concepts:
 
+- Wi keeps a list of repositories, explicitly registered, and manages work items within each project.
 - A work item is the canonical durable aggregate: identity, description, lifecycle, labels, deep-work classification, checkout specification, conversation identity, and append-only history.
-- Lifecycle states are `backlog`, `working`, `waiting`, and `archived`.
-- A workspace is a Git checkout claim/materialization, not a tmux session or coding-agent process.
-- Items use reusable `managed-slot` worktrees from registered independent bare Git stores. Repository-home checkout claims and repository relocation are not supported.
-- Each item has at most one durable primary agent conversation, created when agent work starts, and at most one active runtime owner.
-- TUI runtimes use tmux; headless runtimes must remain tmux-independent.
-- Agent status (`busy`, `idle`, `problem`) and worktree status (`absent`, `clean`, `changed`, `problem`) are separate observations.
-- The daemon's private `wi.db` is canonical for domain state, revisions, compact events, and read projections. Native agent conversations and descriptions remain canonical filesystem content. Runtime and terminal metadata are rebuildable caches; diagnostic logs live under XDG state and sockets under the XDG runtime directory.
+- Items are materialized in re-usable worktrees where the work can be performed and eventually merged back.
+- An item can have multiple runtime attached to it to actually manage access to the workspace, currently support both tmux for TUI style and a web interface.
+- Wi runs as a deamon on the system that manages the state in a private sqlite db.
 
 ## Glossary
 
-- `work item`: The stable durable aggregate. It owns identity, description, lifecycle, labels, deep-work classification, source context, checkout specification and claim state, primary conversation identity, and append-only history. It may exist without a materialized workspace, live runtime, or terminal.
+- `work item`: The stable durable aggregate. It owns identity, description, lifecycle, labels, conversation history. It may exist without a materialized workspace, live runtime, or terminal.
 - `source context`: The registered repository ID and immutable `created_from_commit` recorded at creation. Repository names, integration policy, origin, and derived operational paths are resolved from the registry, not copied into item records.
 - `checkout specification`: Durable materialization instructions, including checkout kind and implementation branch. The nullable claim separately owns the assigned path, identity, and generation. The immutable created-from commit belongs to source context, not checkout state.
 - `checkout kind`: The workspace policy. Items use `managed-slot`, a reusable Wi-owned worktree slot. Offline migration tooling recognizes historical `repository-home` records.
@@ -51,35 +48,14 @@
 
 ## Code map
 
-- `cmd/wi/main.go`: minimal executable entrypoint.
-- `internal/cli/`: command parsing, help, text/JSON output, and exit-code mapping.
-- `internal/app/app.go`: application service composition.
-- `internal/app/core/item/`: durable item lifecycle and metadata.
-- `internal/app/core/workspace/`: checkout slots, claim fencing, and ensure/release policy.
-- `internal/coordinator/repository*.go`: repository registry, source resolution, onboarding validation, and renaming.
-- `internal/migraterepositories/`: explicit offline schema 4-to-5 conversion tooling.
-- `internal/app/core/primaryagent/`: conversation, runtime ownership, observation, and control.
-- `internal/app/core/attention/`: activity facts and attention policy.
-- `internal/app/view/`: list/read projections.
-- `internal/app/adapter/tmux/`: low-level terminal access and interactive navigation porcelain.
-- `internal/app/usecase_*.go`: cross-cutting start/resume/shelve/archive/delete/shutdown orchestration.
-- `internal/app/integration_merge.go`: transactional rebase/fast-forward integration and rollback.
-- `internal/model/`: schema and durable/rebuildable records.
-- `internal/dataroot/`, `internal/runtimepath/`: stable per-root keys and bounded operational paths.
-- `internal/store/`: native description and conversation filesystem access used by application services and tests.
-- `agentdriver/protocol/`: public process protocol for coding-agent drivers.
-- `internal/agent/`: driver-neutral runtime protocol.
-- `internal/agentdriver/`: driver process host and clients; bundled driver implementations live in child packages such as `internal/agentdriver/pi/`.
-- `internal/git/`, `internal/tmux/`, `internal/direnv/`, `internal/process/`: external-system adapters.
-
-## Documentation map
-
-- `docs/src/content/docs/`: published user contracts and workflows. Repositories, delegation, configuration, and tmux each own their detailed recipes.
-- `docs/internal/`: historical migration and implementation notes, not public command recipes.
-- `skills/wi/SKILL.md`: constrained agent operations; retain user edits while keeping command examples aligned.
-- `README.md`: overview and short onboarding path; link to the published docs instead of duplicating bindings.
-
-`wi new` requires explicit `--title`, derives only a missing slug, and never infers a title from description or prompt. Descriptions are durable task content; startup messages are separate. `--start` sends the global `[agent].startup_message`, `--prompt` overrides only that message, and resume never sends a prompt. Contextual base expressions must fail closed outside the current claimed checkout.
+- `cmd/wi/`, `internal/cli/`: entrypoint, command parsing, output, and coordinator-backed commands.
+- `internal/app/`: service composition, cross-cutting `usecase_*.go`, merge integration, shared `contract/`, and read composition in `view/`.
+- `internal/app/core/`: separate `item/`, `workspace/`, `primaryagent/`, and `attention/` policy. Preserve these dependency boundaries.
+- `internal/coordinator/`: daemon, sole structured-state writer, bbolt events/projections, repository registry, and native-content indexing.
+- `internal/model/`, `internal/store/`: record types and filesystem access. Live structured state belongs to the coordinator; drivers own native conversations.
+- `agentdriver/`, `internal/agent/`, `internal/agentdriver/`, `skills/`: public driver contracts, runtime support, process host/clients, bundled Pi implementation, and embedded skills.
+- `internal/git/`, `internal/tmux/`, `internal/direnv/`, `internal/process/`: system adapters. `internal/app/adapter/tmux/` separates terminal operations from interactive navigation.
+- Support and tooling: configuration/path/locking/ranking/version/test helpers under `internal/`; offline conversion in `internal/migraterepositories/`; install/release and popup helpers in `scripts/`.
 
 ## Architectural constraints
 
